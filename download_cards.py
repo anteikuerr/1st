@@ -68,7 +68,7 @@ def download_file(url, path, retries=3):
 
 
 # details のスキーマ版。項目を変えたら上げる (古い carddata.json のレジュームを無効化)
-DETAIL_SCHEMA = 2
+DETAIL_SCHEMA = 3
 
 
 def slim_detail(d):
@@ -97,6 +97,8 @@ def slim_detail(d):
         slim["w"] = [{"t": x.get("type"), "v": x.get("value")} for x in weaknesses]
     if d.get("retreat") is not None:
         slim["rc"] = d["retreat"]
+    if d.get("evolveFrom"):
+        slim["dv"] = d["evolveFrom"]  # 進化元の名前 (デッキ提案の進化ライン補完に使用)
     return slim
 
 
