@@ -115,6 +115,8 @@ function buildSimDeck({ deck, energies, cardById, details }) {
         evolvesFrom: d.dv ? (typeof jaCardName === "function" ? jaCardName(d.dv) : d.dv) : null,
         hp: d.h || 0,
         ex: /ex$/.test(card.name),
+        // メガex: きぜつすると相手に3ポイント入る
+        mega: /ex$/.test(card.name) && (/^メガ/.test(card.name) || /^Mega /.test(card.enName || card.name)),
         weakness: (d.w || [])[0]?.t || null,
         types: d.t || [],
         attacks,
@@ -190,9 +192,10 @@ function simulateGame(simDeckA, simDeckB, rng) {
   }
 
   // きぜつ処理: trueを返したら勝敗確定 (meが勝ち)
+  const pointsFor = (mon) => (mon.mega ? 3 : mon.ex ? 2 : 1);
   const knockOut = (me, op, mon) => {
     if (mon === op.active) {
-      me.points += mon.ex ? 2 : 1;
+      me.points += pointsFor(mon);
       op.active = null;
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
@@ -202,7 +205,7 @@ function simulateGame(simDeckA, simDeckB, rng) {
       const i = op.bench.indexOf(mon);
       if (i >= 0) {
         op.bench.splice(i, 1);
-        me.points += mon.ex ? 2 : 1;
+        me.points += pointsFor(mon);
         if (me.points >= 3) return true;
       }
     }
