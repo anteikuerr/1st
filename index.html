@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ポケポケ デッキビルダー</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎴</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>🎴 ポケポケ デッキビルダー</h1>
+  <div class="header-actions">
+    <a class="meta-link" href="https://pocket.limitlesstcg.com/decks?lang=ja" target="_blank" rel="noopener">📊 環境デッキを見る (Limitless)</a>
+    <button id="deck-toggle" class="deck-toggle" type="button">🃏 デッキ <span id="deck-count-badge">0</span>/20</button>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- カードブラウザ -->
+  <section class="browser">
+    <div class="filters">
+      <input id="search" type="search" placeholder="カード名で検索…" autocomplete="off">
+      <select id="set-filter">
+        <option value="">すべての拡張パック</option>
+      </select>
+      <button id="reload-btn" type="button" title="カードデータを再取得">🔄</button>
+    </div>
+    <div id="status" class="status"></div>
+    <div id="card-grid" class="card-grid"></div>
+    <div id="grid-sentinel" class="grid-sentinel"></div>
+  </section>
+
+  <!-- デッキパネル -->
+  <aside id="deck-panel" class="deck-panel">
+    <div class="deck-header">
+      <h2>デッキ <span id="deck-count">0</span>/20</h2>
+      <button id="deck-close" class="deck-close" type="button">✕</button>
+    </div>
+
+    <div class="deck-name-row">
+      <input id="deck-name" type="text" placeholder="デッキ名" maxlength="40">
+    </div>
+
+    <div class="energy-row">
+      <span class="energy-label">エネルギー:</span>
+      <div id="energy-picker" class="energy-picker"></div>
+    </div>
+
+    <div id="deck-warnings" class="deck-warnings"></div>
+    <div id="deck-list" class="deck-list"></div>
+
+    <div class="deck-actions">
+      <button id="save-deck" type="button" class="primary">💾 保存</button>
+      <button id="export-deck" type="button">📤 テキスト出力</button>
+      <button id="import-deck" type="button">📥 読み込み</button>
+      <button id="clear-deck" type="button" class="danger">🗑 クリア</button>
+    </div>
+
+    <div class="saved-decks">
+      <h3>保存済みデッキ</h3>
+      <div id="saved-deck-list"></div>
+    </div>
+  </aside>
+</main>
+
+<!-- カード詳細モーダル -->
+<div id="card-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body">
+    <button class="modal-close" type="button">✕</button>
+    <img id="modal-img" alt="">
+    <div id="modal-info" class="modal-info"></div>
+    <div class="modal-actions">
+      <button id="modal-add" type="button" class="primary">デッキに追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- インポートモーダル -->
+<div id="import-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body">
+    <button class="modal-close" type="button">✕</button>
+    <h3>デッキテキスト読み込み</h3>
+    <p class="hint">「2 ピカチュウex (A1-094)」形式の行を貼り付けてください。</p>
+    <textarea id="import-text" rows="10"></textarea>
+    <div class="modal-actions">
+      <button id="import-confirm" type="button" class="primary">読み込む</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
