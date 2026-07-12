@@ -40,6 +40,7 @@ const state = {
   savedDecks: [],
   details: new Map(),    // cardId -> { c: category, t: types[], h: hp, s: stage, r: rarity }
   detailCache: new Map(),// cardId -> フル詳細 (モーダル用)
+  localData: null,       // download_cards.py の data/ を使用中なら { high: bool }
   baseStatus: "",
   modalCardId: null,
 };
@@ -98,9 +99,13 @@ function normalize(s) {
 }
 
 function thumbUrl(card) {
+  if (state.localData) return `data/img/${card.id}.webp`;
   return card.image ? `${card.image}/low.webp` : null;
 }
 function largeUrl(card) {
+  if (state.localData) {
+    return state.localData.high ? `data/img_hi/${card.id}.webp` : `data/img/${card.id}.webp`;
+  }
   return card.image ? `${card.image}/high.webp` : null;
 }
 
@@ -113,6 +118,22 @@ async function fetchJson(url) {
 // ---------- カードデータ読み込み ----------
 async function loadCards(forceReload = false) {
   els.status.textContent = "カードデータを読み込み中…";
+
+  // download_cards.py で作成したローカルデータがあれば最優先 (完全オフライン動作)
+  try {
+    const local = await fetchJson("data/cards.json");
+    if (local?.cards?.length) {
+      state.lang = local.lang || "ja";
+      state.localData = { high: !!local.high };
+      applyCardData(local.sets || [], local.cards);
+      state.details = new Map(Object.entries(local.details || {}));
+      refreshDetailFilterOptions();
+      renderWarnings();
+      setBaseStatus(`${local.cards.length}枚のカードを読み込みました（ローカルデータ / オフライン対応）`);
+      return;
+    }
+  } catch { /* ローカルデータなし → オンライン取得へ */ }
+  state.localData = null;
 
   if (!forceReload) {
     try {
@@ -325,6 +346,13 @@ function makeCardCell(card) {
     img.src = url;
     img.alt = card.name;
     img.title = `${card.name} (${card.id})`;
+    // 画像が無い/取得漏れの場合はカード名のプレースホルダに置き換える
+    img.addEventListener("error", () => {
+      const ph = document.createElement("div");
+      ph.className = "no-img";
+      ph.textContent = card.name;
+      img.replaceWith(ph);
+    }, { once: true });
     cell.appendChild(img);
   } else {
     const ph = document.createElement("div");
@@ -447,6 +475,24 @@ function restoreCurrent() {
 
 async function fetchDetail(cardId) {
   if (state.detailCache.has(cardId)) return state.detailCache.get(cardId);
+  // ローカルデータ利用時は取り込み済みの詳細から組み立てる (通信しない)
+  if (state.localData) {
+    const d = state.details.get(cardId);
+    if (!d) return null;
+    const card = state.cardById.get(cardId);
+    const detail = {
+      name: card?.name,
+      category: d.c,
+      hp: d.h,
+      types: d.t,
+      stage: d.s,
+      rarity: d.r,
+    };
+    state.detailCache.set(cardId, detail);
+    renderWarnings();
+    if (state.modalCardId === cardId) renderModalInfo(detail);
+    return detail;
+  }
   try {
     const detail = await fetchJson(`${API_BASE}/${state.lang}/cards/${cardId}`);
     state.detailCache.set(cardId, detail);
