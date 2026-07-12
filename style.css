@@ -22,6 +22,12 @@ html, body {
   font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif;
 }
 
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* ---------- ヘッダー ---------- */
 .app-header {
   position: sticky;
@@ -33,7 +39,8 @@ html, body {
   gap: 12px;
   padding: 10px 16px;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
 }
 
 .app-header h1 {
@@ -124,13 +131,49 @@ button.primary {
 }
 button.danger { color: var(--danger); }
 
+.type-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.type-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  transition: border-color .12s, background .12s, transform .08s;
+}
+.type-chip:hover { transform: translateY(-1px); }
+.type-chip.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+
+.status-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 .status {
   color: var(--text-dim);
   font-size: 13px;
   min-height: 18px;
-  margin-bottom: 8px;
 }
 .status .error { color: var(--danger); }
+
+.result-count {
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
 
 .card-grid {
   display: grid;
@@ -147,7 +190,7 @@ button.danger { color: var(--danger); }
   content-visibility: auto;
   contain-intrinsic-size: 140px 196px;
 }
-.card-cell:hover { transform: translateY(-3px); }
+.card-cell:hover { transform: translateY(-3px); filter: brightness(1.08); }
 
 .card-cell img {
   width: 100%;
@@ -222,6 +265,23 @@ button.danger { color: var(--danger); }
 }
 .deck-header h2 { margin: 0 0 8px; font-size: 16px; }
 .deck-close { display: none; }
+
+.deck-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+#deck-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width .2s ease;
+}
+#deck-progress-fill.full { background: var(--ok); }
 
 .deck-name-row input { width: 100%; }
 
@@ -354,6 +414,7 @@ button.danger { color: var(--danger); }
   width: calc(100vw - 32px);
   max-height: calc(100vh - 40px);
   overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
 }
 
 .modal-body h3 { margin-top: 0; }

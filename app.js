@@ -32,6 +32,7 @@ const state = {
   sets: [],              // { id, name }
   lang: "ja",
   filtered: [],
+  typeFilter: "",        // タイプチップの選択値
   deck: {},              // cardId -> count
   deckName: "",
   energies: [],          // energy type ids (max 3)
@@ -49,9 +50,12 @@ const els = {
   search: $("#search"),
   setFilter: $("#set-filter"),
   categoryFilter: $("#category-filter"),
-  typeFilter: $("#type-filter"),
+  typeChips: $("#type-chips"),
   stageFilter: $("#stage-filter"),
   rarityFilter: $("#rarity-filter"),
+  sortFilter: $("#sort-filter"),
+  resultCount: $("#result-count"),
+  deckProgressFill: $("#deck-progress-fill"),
   reloadBtn: $("#reload-btn"),
   status: $("#status"),
   grid: $("#card-grid"),
@@ -298,7 +302,7 @@ async function hydrateDetails(preloaded) {
 }
 
 function detailFilterActive() {
-  return !!(els.categoryFilter.value || els.typeFilter.value ||
+  return !!(els.categoryFilter.value || state.typeFilter ||
             els.stageFilter.value || els.rarityFilter.value);
 }
 
@@ -321,7 +325,7 @@ function refreshDetailFilterOptions() {
   const rank = (order, v) => { const i = order.indexOf(v); return i < 0 ? 99 : i; };
 
   fillSelect(els.categoryFilter, "カテゴリ", [...categories.entries()]);
-  fillSelect(els.typeFilter, "タイプ",
+  renderTypeChips(
     [...types].map((v) => [v, jaType(v)])
       .sort((a, b) => rank(TYPE_ORDER, a[1]) - rank(TYPE_ORDER, b[1]) || a[1].localeCompare(b[1])));
   fillSelect(els.stageFilter, "進化",
@@ -329,6 +333,26 @@ function refreshDetailFilterOptions() {
       .sort((a, b) => rank(STAGE_ORDER, a[1]) - rank(STAGE_ORDER, b[1]) || a[1].localeCompare(b[1])));
   fillSelect(els.rarityFilter, "レアリティ",
     [...rarities].map((v) => [v, jaRarity(v)]).sort((a, b) => a[1].localeCompare(b[1])));
+}
+
+// タイプ絞り込みはワンタップのアイコンチップで
+function renderTypeChips(entries) {
+  if (entries.length && !entries.some(([v]) => v === state.typeFilter)) state.typeFilter = "";
+  els.typeChips.innerHTML = "";
+  const all = [["", "すべて"], ...entries];
+  for (const [value, label] of all) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "type-chip" + (state.typeFilter === value ? " active" : "");
+    chip.dataset.type = value;
+    chip.textContent = value === "" ? "すべて" : `${costIcon(value)} ${label}`;
+    chip.addEventListener("click", () => {
+      state.typeFilter = value;
+      for (const c of els.typeChips.children) c.classList.toggle("active", c.dataset.type === value);
+      applyFilter();
+    });
+    els.typeChips.appendChild(chip);
+  }
 }
 
 function fillSelect(select, placeholder, entries) {
@@ -344,7 +368,7 @@ function applyFilter() {
   const q = normalize(els.search.value.trim());
   const setId = els.setFilter.value;
   const cat = els.categoryFilter.value;
-  const type = els.typeFilter.value;
+  const type = state.typeFilter;
   const stage = els.stageFilter.value;
   const rarity = els.rarityFilter.value;
   const useDetail = !!(cat || type || stage || rarity);
@@ -364,6 +388,17 @@ function applyFilter() {
     }
     return true;
   });
+
+  const sort = els.sortFilter.value;
+  if (sort === "hp") {
+    state.filtered.sort((a, b) => (state.details.get(b.id)?.h || 0) - (state.details.get(a.id)?.h || 0));
+  } else if (sort === "name") {
+    state.filtered.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  }
+
+  els.resultCount.textContent = state.allCards.length
+    ? `${state.filtered.length} / ${state.allCards.length}枚`
+    : "";
   renderGrid();
   schedulePrefetch();
 }
@@ -584,6 +619,8 @@ function renderDeck() {
   const total = deckTotal();
   els.deckCount.textContent = total;
   els.deckCountBadge.textContent = total;
+  els.deckProgressFill.style.width = `${(total / DECK_SIZE) * 100}%`;
+  els.deckProgressFill.classList.toggle("full", total === DECK_SIZE);
 
   const entries = Object.entries(state.deck)
     .map(([id, count]) => ({ card: state.cardById.get(id), id, count }))
@@ -907,7 +944,7 @@ function bindEvents() {
     searchTimer = setTimeout(applyFilter, 150);
   });
   els.setFilter.addEventListener("change", applyFilter);
-  for (const select of [els.categoryFilter, els.typeFilter, els.stageFilter, els.rarityFilter]) {
+  for (const select of [els.categoryFilter, els.stageFilter, els.rarityFilter, els.sortFilter]) {
     select.addEventListener("change", applyFilter);
   }
   els.reloadBtn.addEventListener("click", () => loadCards(true));

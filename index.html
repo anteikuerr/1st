@@ -27,18 +27,24 @@
       <select id="category-filter" class="detail-filter">
         <option value="">カテゴリ</option>
       </select>
-      <select id="type-filter" class="detail-filter">
-        <option value="">タイプ</option>
-      </select>
       <select id="stage-filter" class="detail-filter">
         <option value="">進化</option>
       </select>
       <select id="rarity-filter" class="detail-filter">
         <option value="">レアリティ</option>
       </select>
+      <select id="sort-filter">
+        <option value="">収録順</option>
+        <option value="hp">HPが高い順</option>
+        <option value="name">名前順</option>
+      </select>
       <button id="reload-btn" type="button" title="カードデータを再取得">🔄</button>
     </div>
-    <div id="status" class="status"></div>
+    <div id="type-chips" class="type-chips"></div>
+    <div class="status-row">
+      <div id="status" class="status"></div>
+      <div id="result-count" class="result-count"></div>
+    </div>
     <div id="card-grid" class="card-grid"></div>
   </section>
 
@@ -48,6 +54,7 @@
       <h2>デッキ <span id="deck-count">0</span>/20</h2>
       <button id="deck-close" class="deck-close" type="button">✕</button>
     </div>
+    <div class="deck-progress"><div id="deck-progress-fill"></div></div>
 
     <div class="deck-name-row">
       <input id="deck-name" type="text" placeholder="デッキ名" maxlength="40">
