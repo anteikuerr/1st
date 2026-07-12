@@ -5,7 +5,8 @@
 
 const API_BASE = "https://api.tcgdex.net/v2";
 const SERIES_ID = "tcgp";
-const CACHE_KEY = "ppdb.cards.v2";
+const CACHE_KEY = "ppdb.cards.v3";
+const DETAILS_KEY = "ppdb.details.v1";
 const DECKS_KEY = "ppdb.decks.v1";
 const CURRENT_KEY = "ppdb.current.v1";
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
@@ -30,13 +31,16 @@ const state = {
   allCards: [],          // { id, localId, name, image, setId, setName }
   cardById: new Map(),
   sets: [],              // { id, name }
+  lang: "ja",
   filtered: [],
   renderedCount: 0,
   deck: {},              // cardId -> count
   deckName: "",
   energies: [],          // energy type ids (max 3)
   savedDecks: [],
-  detailCache: new Map(),// cardId -> card detail
+  details: new Map(),    // cardId -> { c: category, t: types[], h: hp, s: stage, r: rarity }
+  detailCache: new Map(),// cardId -> フル詳細 (モーダル用)
+  baseStatus: "",
   modalCardId: null,
 };
 
@@ -45,6 +49,10 @@ const $ = (sel) => document.querySelector(sel);
 const els = {
   search: $("#search"),
   setFilter: $("#set-filter"),
+  categoryFilter: $("#category-filter"),
+  typeFilter: $("#type-filter"),
+  stageFilter: $("#stage-filter"),
+  rarityFilter: $("#rarity-filter"),
   reloadBtn: $("#reload-btn"),
   status: $("#status"),
   grid: $("#card-grid"),
@@ -110,8 +118,10 @@ async function loadCards(forceReload = false) {
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
       if (cached && Date.now() - cached.time < CACHE_TTL && cached.cards?.length) {
+        state.lang = cached.lang || "ja";
         applyCardData(cached.sets, cached.cards);
-        els.status.textContent = `${state.allCards.length}枚のカードを読み込みました（キャッシュ）`;
+        setBaseStatus(`${state.allCards.length}枚のカードを読み込みました（キャッシュ）`);
+        hydrateDetails();
         return;
       }
     } catch { /* キャッシュ破損は無視して再取得 */ }
@@ -145,11 +155,13 @@ async function loadCards(forceReload = false) {
       }
       if (!cards.length) throw new Error("カードが0枚でした");
 
+      state.lang = lang;
       applyCardData(sets, cards);
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ time: Date.now(), sets, cards }));
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ time: Date.now(), lang, sets, cards }));
       } catch { /* 容量オーバーは無視 */ }
-      els.status.textContent = `${cards.length}枚のカードを読み込みました`;
+      setBaseStatus(`${cards.length}枚のカードを読み込みました`);
+      hydrateDetails();
       return;
     } catch (e) {
       console.warn(`[${lang}] 読み込み失敗:`, e);
@@ -173,13 +185,117 @@ function applyCardData(sets, cards) {
   renderDeck(); // サムネ解決のため再描画
 }
 
+function setBaseStatus(msg) {
+  state.baseStatus = msg;
+  els.status.textContent = msg;
+}
+
+// ---------- カード詳細の一括取り込み ----------
+// タイプ・進化・レアリティ等での絞り込み用に、全カードの詳細を
+// バックグラウンドで少しずつ取得して localStorage に永続キャッシュする
+async function hydrateDetails() {
+  let cache = {};
+  try { cache = JSON.parse(localStorage.getItem(DETAILS_KEY) || "{}"); } catch { /* ignore */ }
+  if (cache.lang !== state.lang || !cache.cards) cache = { lang: state.lang, cards: {} };
+
+  state.details = new Map(Object.entries(cache.cards));
+
+  const queue = state.allCards.map((c) => c.id).filter((id) => !state.details.has(id));
+  const total = queue.length;
+  refreshDetailFilterOptions();
+
+  if (!total) return;
+
+  let done = 0;
+  const persist = () => {
+    try { localStorage.setItem(DETAILS_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
+  };
+  const workers = Array.from({ length: 8 }, async () => {
+    while (queue.length) {
+      const id = queue.shift();
+      try {
+        const d = await fetchJson(`${API_BASE}/${state.lang}/cards/${id}`);
+        const slim = {
+          c: d.category || null,
+          t: d.types || [],
+          h: d.hp || null,
+          s: d.stage || null,
+          r: d.rarity || null,
+        };
+        state.details.set(id, slim);
+        cache.cards[id] = slim;
+      } catch { /* 失敗したカードは次回に再試行 */ }
+      done++;
+      if (done % 100 === 0) {
+        persist();
+        refreshDetailFilterOptions();
+        els.status.textContent = `${state.baseStatus} · 詳細データ取得中 ${done}/${total}`;
+        if (detailFilterActive()) applyFilter();
+      }
+    }
+  });
+  await Promise.all(workers);
+  persist();
+  refreshDetailFilterOptions();
+  renderWarnings();
+  els.status.textContent = state.baseStatus;
+  if (detailFilterActive()) applyFilter();
+}
+
+function detailFilterActive() {
+  return !!(els.categoryFilter.value || els.typeFilter.value ||
+            els.stageFilter.value || els.rarityFilter.value);
+}
+
+const CATEGORY_LABELS = { Pokemon: "ポケモン", Trainer: "トレーナーズ", Energy: "エネルギー" };
+
+// 取得済みの詳細データから絞り込み候補を動的に作る(APIの表記に依存しない)
+function refreshDetailFilterOptions() {
+  const categories = new Map(); // value -> label
+  const types = new Set();
+  const stages = new Set();
+  const rarities = new Set();
+  for (const d of state.details.values()) {
+    if (d.c) categories.set(d.c, CATEGORY_LABELS[d.c] || d.c);
+    for (const t of d.t || []) types.add(t);
+    if (d.s) stages.add(d.s);
+    if (d.r) rarities.add(d.r);
+  }
+  fillSelect(els.categoryFilter, "カテゴリ", [...categories.entries()]);
+  fillSelect(els.typeFilter, "タイプ", [...types].sort().map((v) => [v, v]));
+  fillSelect(els.stageFilter, "進化", [...stages].sort().map((v) => [v, v]));
+  fillSelect(els.rarityFilter, "レアリティ", [...rarities].sort().map((v) => [v, v]));
+}
+
+function fillSelect(select, placeholder, entries) {
+  const current = select.value;
+  select.innerHTML =
+    `<option value="">${esc(placeholder)}</option>` +
+    entries.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join("");
+  if (entries.some(([v]) => v === current)) select.value = current;
+}
+
 // ---------- フィルタとグリッド描画 ----------
 function applyFilter() {
   const q = normalize(els.search.value.trim());
   const setId = els.setFilter.value;
+  const cat = els.categoryFilter.value;
+  const type = els.typeFilter.value;
+  const stage = els.stageFilter.value;
+  const rarity = els.rarityFilter.value;
+  const useDetail = !!(cat || type || stage || rarity);
+
   state.filtered = state.allCards.filter((c) => {
     if (setId && c.setId !== setId) return false;
     if (q && !normalize(c.name).includes(q) && !normalize(c.id).includes(q)) return false;
+    if (useDetail) {
+      const d = state.details.get(c.id);
+      if (!d) return false; // 詳細未取得のカードは取得され次第反映される
+      if (cat && d.c !== cat) return false;
+      if (type && !(d.t || []).includes(type)) return false;
+      if (stage && d.s !== stage) return false;
+      if (rarity && d.r !== rarity) return false;
+    }
     return true;
   });
   state.renderedCount = 0;
@@ -332,7 +448,7 @@ function restoreCurrent() {
 async function fetchDetail(cardId) {
   if (state.detailCache.has(cardId)) return state.detailCache.get(cardId);
   try {
-    const detail = await fetchJson(`${API_BASE}/ja/cards/${cardId}`);
+    const detail = await fetchJson(`${API_BASE}/${state.lang}/cards/${cardId}`);
     state.detailCache.set(cardId, detail);
     renderWarnings();
     if (state.modalCardId === cardId) renderModalInfo(detail);
@@ -424,9 +540,9 @@ function renderWarnings() {
     let hasBasic = false;
     let allKnown = true;
     for (const id of Object.keys(state.deck)) {
-      const d = state.detailCache.get(id);
+      const d = state.details.get(id);
       if (!d) { allKnown = false; continue; }
-      if (d.category === "Pokemon" && (d.stage === "Basic" || d.stage === "たね")) hasBasic = true;
+      if ((d.c === "Pokemon" || d.c === "ポケモン") && (d.s === "Basic" || d.s === "たね")) hasBasic = true;
     }
     if (allKnown && !hasBasic) {
       msgs.push("⚠ たねポケモンが入っていません");
@@ -637,6 +753,9 @@ function bindEvents() {
     searchTimer = setTimeout(applyFilter, 150);
   });
   els.setFilter.addEventListener("change", applyFilter);
+  for (const select of [els.categoryFilter, els.typeFilter, els.stageFilter, els.rarityFilter]) {
+    select.addEventListener("change", applyFilter);
+  }
   els.reloadBtn.addEventListener("click", () => loadCards(true));
 
   new IntersectionObserver((entries) => {
