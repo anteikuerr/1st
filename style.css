@@ -303,6 +303,56 @@ button.danger { color: var(--danger); }
   margin: 6px 0 10px;
 }
 
+.diag-btn {
+  width: 100%;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.diag-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.diag-rank {
+  font-size: 34px;
+  font-weight: bold;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+}
+.diag-rank.rank-S { color: #ffcb3b; border-color: #ffcb3b; }
+.diag-rank.rank-A { color: #5dc98a; border-color: #5dc98a; }
+.diag-rank.rank-B { color: #5da9c9; border-color: #5da9c9; }
+.diag-rank.rank-C { color: #c9a15d; border-color: #c9a15d; }
+.diag-rank.rank-D { color: var(--danger); border-color: var(--danger); }
+.diag-avg { font-size: 15px; }
+
+.diag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.diag-name { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diag-bar {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.diag-bar div { height: 100%; background: var(--accent); border-radius: 999px; }
+.diag-pct { width: 36px; text-align: right; }
+
 .deck-name-row input { width: 100%; }
 
 .energy-row {

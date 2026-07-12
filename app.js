@@ -70,6 +70,8 @@ const els = {
   deckList: $("#deck-list"),
   savedDeckList: $("#saved-deck-list"),
   cardModal: $("#card-modal"),
+  diagModal: $("#diag-modal"),
+  diagResults: $("#diag-results"),
   modalImg: $("#modal-img"),
   modalInfo: $("#modal-info"),
   modalAdd: $("#modal-add"),
@@ -747,6 +749,84 @@ function runSuggest() {
   toast(`「${result.name}」を提案しました ✨ 気に入らないカードは入れ替えてOK`, 3200);
 }
 
+// ---------- デッキ診断 (模擬対戦) ----------
+const ENERGY_ID_TO_TYPE = {
+  grass: "Grass", fire: "Fire", water: "Water", lightning: "Lightning",
+  psychic: "Psychic", fighting: "Fighting", darkness: "Darkness", metal: "Metal",
+};
+
+let diagRefs = null; // 対戦相手の代表デッキ (初回のみ構築)
+
+function getDiagRefs() {
+  if (diagRefs) return diagRefs;
+  diagRefs = [];
+  for (const coreName of ["ギャラドスex", "ダークライex", "ミュウツーex", "リザードンex"]) {
+    const card = state.allCards.find((c) => c.name === coreName);
+    if (!card) continue;
+    const r = suggestDeck({ cards: state.allCards, details: state.details, deck: { [card.id]: 2 } });
+    if (r.error) continue;
+    diagRefs.push({
+      name: `${coreName}デッキ`,
+      sim: buildSimDeck({ deck: r.deck, energies: r.energies, cardById: state.cardById, details: state.details }),
+    });
+  }
+  // 小さいデータセットでも動くように、見つからなければおまかせ構築で代替
+  while (diagRefs.length < 2) {
+    const r = suggestDeck({ cards: state.allCards, details: state.details, deck: {} });
+    if (r.error) break;
+    diagRefs.push({
+      name: r.name,
+      sim: buildSimDeck({ deck: r.deck, energies: r.energies, cardById: state.cardById, details: state.details }),
+    });
+  }
+  return diagRefs;
+}
+
+function runDiagnosis() {
+  if (deckTotal() !== DECK_SIZE) {
+    toast(`デッキを${DECK_SIZE}枚そろえてから診断してください`);
+    return;
+  }
+  if (!state.energies.length) {
+    toast("エネルギータイプを選んでから診断してください");
+    return;
+  }
+  if (state.details.size < state.allCards.length * 0.5) {
+    toast("カードデータの取り込み中です。少し待ってから試してください");
+    return;
+  }
+  const refs = getDiagRefs();
+  if (!refs.length) {
+    toast("診断用の対戦相手を用意できませんでした");
+    return;
+  }
+
+  const energies = state.energies.map((id) => ENERGY_ID_TO_TYPE[id]).filter(Boolean);
+  const mySim = buildSimDeck({
+    deck: state.deck, energies, cardById: state.cardById, details: state.details,
+  });
+
+  const rows = [];
+  let sum = 0;
+  for (const ref of refs) {
+    const wr = simulateMatch(mySim, ref.sim, 300, Date.now() % 100000);
+    sum += wr;
+    rows.push({ name: ref.name, wr });
+  }
+  const avg = sum / refs.length;
+  const rank = avg >= 0.65 ? "S" : avg >= 0.55 ? "A" : avg >= 0.45 ? "B" : avg >= 0.35 ? "C" : "D";
+
+  els.diagResults.innerHTML =
+    `<div class="diag-head"><span class="diag-rank rank-${rank}">${rank}</span>` +
+    `<span class="diag-avg">平均勝率 <b>${Math.round(avg * 100)}%</b></span></div>` +
+    rows.map((r) =>
+      `<div class="diag-row"><span class="diag-name">vs ${esc(r.name)}</span>` +
+      `<div class="diag-bar"><div style="width:${Math.round(r.wr * 100)}%"></div></div>` +
+      `<b class="diag-pct">${Math.round(r.wr * 100)}%</b></div>`
+    ).join("");
+  els.diagModal.classList.remove("hidden");
+}
+
 // ---------- 保存・読み込み ----------
 function loadSavedDecks() {
   try {
@@ -965,6 +1045,7 @@ const costIcon = (t) => COST_ICONS[t] || "⚪";
 function closeModals() {
   els.cardModal.classList.add("hidden");
   els.importModal.classList.add("hidden");
+  els.diagModal.classList.add("hidden");
   state.modalCardId = null;
 }
 
@@ -987,6 +1068,7 @@ function bindEvents() {
   });
 
   $("#suggest-deck").addEventListener("click", runSuggest);
+  $("#diag-deck").addEventListener("click", runDiagnosis);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
   $("#clear-deck").addEventListener("click", clearDeck);

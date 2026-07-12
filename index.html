@@ -58,6 +58,7 @@
 
     <button id="suggest-deck" type="button" class="suggest-btn">✨ おまかせ構築</button>
     <p class="suggest-hint">核にしたいカードを1〜5種類入れて押すと、残りを自動で組みます（0枚ならおまかせで選択）</p>
+    <button id="diag-deck" type="button" class="diag-btn">🥊 デッキ診断（模擬対戦）</button>
 
     <div class="deck-name-row">
       <input id="deck-name" type="text" placeholder="デッキ名" maxlength="40">
@@ -112,10 +113,22 @@
   </div>
 </div>
 
+<!-- デッキ診断モーダル -->
+<div id="diag-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body">
+    <button class="modal-close" type="button">✕</button>
+    <h3>🥊 デッキ診断</h3>
+    <div id="diag-results"></div>
+    <p class="hint">代表デッキと各300回の模擬対戦をした結果です。簡易シミュレーション（特性・ワザの付帯効果は未考慮）なので目安として使ってください。</p>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 
 <script src="ja.js"></script>
 <script src="suggest.js"></script>
+<script src="sim.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
