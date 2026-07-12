@@ -26,7 +26,7 @@ const SUGGEST_STAPLES = [
 const SUGGEST_WEIGHTS = {
   hpW: 0.3,    // HPの重み
   exB: 30,     // exボーナス
-  stageP: 15,  // 進化段数ごとのペナルティ (立ち上がりの遅さ)
+  stageP: 10,  // 進化段数ごとのペナルティ (立ち上がりの遅さ)
   costP: 35,   // 最大打点ワザのエネルギーコスト1個あたりのペナルティ
 };
 
