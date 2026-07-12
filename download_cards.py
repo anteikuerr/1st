@@ -5,8 +5,10 @@ TCGdex API から全カードの情報とサムネイル画像を data/ フォ�
 data/ がある状態でアプリを開くと、ネット接続なしで動作します。
 
 使い方:
-    python3 download_cards.py           # カード情報 + サムネイル画像 (低解像度)
-    python3 download_cards.py --high    # 上に加えて拡大表示用の高解像度画像も取得
+    python3 download_cards.py             # カード情報 + サムネイル画像 (低解像度)
+    python3 download_cards.py --high      # 上に加えて拡大表示用の高解像度画像も取得
+    python3 download_cards.py --meta-only # 画像なしでカード情報だけを carddata.json に出力
+                                          # (GitHub Actions がアプリ同梱データの更新に使用)
 
 2回目以降はダウンロード済みのファイルをスキップするので、
 新パックが出たら再実行するだけで差分が追加されます。
@@ -22,13 +24,15 @@ from urllib.request import Request, urlopen
 API = os.environ.get("TCGDEX_API_BASE", "https://api.tcgdex.net/v2")
 SERIES_ID = "tcgp"
 HIGH = "--high" in sys.argv
+META_ONLY = "--meta-only" in sys.argv
 WORKERS = 8
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(ROOT, "data")
 IMG_DIR = os.path.join(DATA_DIR, "img")
 IMG_HI_DIR = os.path.join(DATA_DIR, "img_hi")
-CARDS_JSON = os.path.join(DATA_DIR, "cards.json")
+# --meta-only はアプリ同梱用にリポジトリ直下へ出力する
+CARDS_JSON = os.path.join(ROOT, "carddata.json") if META_ONLY else os.path.join(DATA_DIR, "cards.json")
 
 HEADERS = {"User-Agent": "pokepoke-deck-builder/1.0"}
 
@@ -92,9 +96,10 @@ def run_parallel(label, jobs):
 
 
 def main():
-    os.makedirs(IMG_DIR, exist_ok=True)
-    if HIGH:
-        os.makedirs(IMG_HI_DIR, exist_ok=True)
+    if not META_ONLY:
+        os.makedirs(IMG_DIR, exist_ok=True)
+        if HIGH:
+            os.makedirs(IMG_HI_DIR, exist_ok=True)
 
     # 前回の結果があれば詳細データを再利用 (レジューム)
     prev_details = {}
@@ -145,27 +150,29 @@ def main():
 
     run_parallel("詳細", [(cid, lambda cid=cid: fetch_detail(cid)) for cid in missing])
 
-    # 3. 画像
-    with_image = [c for c in cards if c.get("image")]
-    print(f"サムネイル画像: {len(with_image)}枚 (取得済みはスキップ)")
-    jobs = [
-        (c["id"], lambda c=c: download_file(
-            f"{c['image']}/low.webp", os.path.join(IMG_DIR, f"{c['id']}.webp")))
-        for c in with_image
-    ]
-    if HIGH:
-        jobs += [
-            (c["id"] + " (高解像度)", lambda c=c: download_file(
-                f"{c['image']}/high.webp", os.path.join(IMG_HI_DIR, f"{c['id']}.webp")))
+    # 3. 画像 (--meta-only 時はスキップ)
+    img_failed = 0
+    if not META_ONLY:
+        with_image = [c for c in cards if c.get("image")]
+        print(f"サムネイル画像: {len(with_image)}枚 (取得済みはスキップ)")
+        jobs = [
+            (c["id"], lambda c=c: download_file(
+                f"{c['image']}/low.webp", os.path.join(IMG_DIR, f"{c['id']}.webp")))
             for c in with_image
         ]
-    img_failed = run_parallel("画像", jobs)
+        if HIGH:
+            jobs += [
+                (c["id"] + " (高解像度)", lambda c=c: download_file(
+                    f"{c['image']}/high.webp", os.path.join(IMG_HI_DIR, f"{c['id']}.webp")))
+                for c in with_image
+            ]
+        img_failed = run_parallel("画像", jobs)
 
     # 4. cards.json 書き出し
     payload = {
         "time": int(time.time() * 1000),
         "lang": lang,
-        "high": HIGH,
+        "high": HIGH and not META_ONLY,
         "sets": sets,
         "cards": cards,
         "details": details,
@@ -174,10 +181,11 @@ def main():
         json.dump(payload, f, ensure_ascii=False)
 
     print()
-    print(f"✅ 完了: {len(cards)}枚 → {os.path.relpath(DATA_DIR, ROOT)}/")
+    print(f"✅ 完了: {len(cards)}枚 → {os.path.relpath(CARDS_JSON, ROOT)}")
     if img_failed:
         print(f"⚠ 画像{img_failed}件が取得できませんでした。再実行すると失敗分だけ再取得します。")
-    print("次: python3 -m http.server 8000 を実行して http://localhost:8000 を開いてください。")
+    if not META_ONLY:
+        print("次: python3 -m http.server 8000 を実行して http://localhost:8000 を開いてください。")
 
 
 if __name__ == "__main__":

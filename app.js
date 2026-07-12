@@ -132,6 +132,19 @@ async function loadCards(forceReload = false) {
   } catch { /* ローカルデータなし → オンライン取得へ */ }
   state.localData = null;
 
+  // アプリ同梱のメタデータ (carddata.json / GitHub Actionsが週次更新)。
+  // 詳細も同梱済みなので、新カードの差分以外はAPIを叩かずに済む
+  try {
+    const bundled = await fetchJson("carddata.json");
+    if (bundled?.cards?.length) {
+      state.lang = bundled.lang || "ja";
+      applyCardData(bundled.sets || [], bundled.cards);
+      setBaseStatus(`${bundled.cards.length}枚のカードを読み込みました`);
+      hydrateDetails(bundled.details);
+      return;
+    }
+  } catch { /* 同梱データなし → API取得へ */ }
+
   if (!forceReload) {
     try {
       const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
@@ -218,14 +231,18 @@ function setBaseStatus(msg) {
 }
 
 // ---------- カード詳細の一括取り込み ----------
-// タイプ・進化・レアリティ等での絞り込み用に、全カードの詳細を
-// バックグラウンドで少しずつ取得して localStorage に永続キャッシュする
-async function hydrateDetails() {
+// タイプ・進化・レアリティ等での絞り込み用の詳細データ。
+// preloaded (同梱データ) と localStorage キャッシュにあるものはそのまま使い、
+// 足りない分だけバックグラウンドでAPIから取得して永続キャッシュする
+async function hydrateDetails(preloaded) {
   let cache = {};
   try { cache = JSON.parse(localStorage.getItem(DETAILS_KEY) || "{}"); } catch { /* ignore */ }
   if (cache.lang !== state.lang || !cache.cards) cache = { lang: state.lang, cards: {} };
 
-  state.details = new Map(Object.entries(cache.cards));
+  state.details = new Map([
+    ...Object.entries(cache.cards),
+    ...Object.entries(preloaded || {}),
+  ]);
 
   const queue = state.allCards.map((c) => c.id).filter((id) => !state.details.has(id));
   const total = queue.length;
@@ -237,7 +254,7 @@ async function hydrateDetails() {
   const persist = () => {
     try { localStorage.setItem(DETAILS_KEY, JSON.stringify(cache)); } catch { /* ignore */ }
   };
-  const workers = Array.from({ length: 8 }, async () => {
+  const workers = Array.from({ length: 20 }, async () => {
     while (queue.length) {
       const id = queue.shift();
       try {
