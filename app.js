@@ -13,7 +13,6 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
 
 const DECK_SIZE = 20;
 const MAX_PER_NAME = 2;
-const GRID_CHUNK = 60;
 
 const ENERGY_TYPES = [
   { id: "grass", label: "草", icon: "🌿" },
@@ -33,7 +32,6 @@ const state = {
   sets: [],              // { id, name }
   lang: "ja",
   filtered: [],
-  renderedCount: 0,
   deck: {},              // cardId -> count
   deckName: "",
   energies: [],          // energy type ids (max 3)
@@ -57,7 +55,6 @@ const els = {
   reloadBtn: $("#reload-btn"),
   status: $("#status"),
   grid: $("#card-grid"),
-  sentinel: $("#grid-sentinel"),
   deckPanel: $("#deck-panel"),
   deckToggle: $("#deck-toggle"),
   deckClose: $("#deck-close"),
@@ -194,6 +191,15 @@ async function loadCards(forceReload = false) {
 }
 
 function applyCardData(sets, cards) {
+  // 英語データにフォールバックした場合は表示を日本語化 (ja.js / 訳せないものは英語のまま)
+  if (state.lang === "en") {
+    for (const s of sets) s.name = jaSetName(s.id, s.name);
+    for (const c of cards) {
+      if (!c.enName) c.enName = c.name;
+      c.name = jaCardName(c.enName);
+      c.setName = jaSetName(c.setId, c.setName);
+    }
+  }
   state.sets = sets;
   state.allCards = cards;
   state.cardById = new Map(cards.map((c) => [c.id, c]));
@@ -282,10 +288,19 @@ function refreshDetailFilterOptions() {
     if (d.s) stages.add(d.s);
     if (d.r) rarities.add(d.r);
   }
+  const TYPE_ORDER = ["草", "炎", "水", "雷", "超", "闘", "悪", "鋼", "無色", "ドラゴン"];
+  const STAGE_ORDER = ["たね", "1進化", "2進化"];
+  const rank = (order, v) => { const i = order.indexOf(v); return i < 0 ? 99 : i; };
+
   fillSelect(els.categoryFilter, "カテゴリ", [...categories.entries()]);
-  fillSelect(els.typeFilter, "タイプ", [...types].sort().map((v) => [v, v]));
-  fillSelect(els.stageFilter, "進化", [...stages].sort().map((v) => [v, v]));
-  fillSelect(els.rarityFilter, "レアリティ", [...rarities].sort().map((v) => [v, v]));
+  fillSelect(els.typeFilter, "タイプ",
+    [...types].map((v) => [v, jaType(v)])
+      .sort((a, b) => rank(TYPE_ORDER, a[1]) - rank(TYPE_ORDER, b[1]) || a[1].localeCompare(b[1])));
+  fillSelect(els.stageFilter, "進化",
+    [...stages].map((v) => [v, jaStage(v)])
+      .sort((a, b) => rank(STAGE_ORDER, a[1]) - rank(STAGE_ORDER, b[1]) || a[1].localeCompare(b[1])));
+  fillSelect(els.rarityFilter, "レアリティ",
+    [...rarities].map((v) => [v, jaRarity(v)]).sort((a, b) => a[1].localeCompare(b[1])));
 }
 
 function fillSelect(select, placeholder, entries) {
@@ -308,7 +323,9 @@ function applyFilter() {
 
   state.filtered = state.allCards.filter((c) => {
     if (setId && c.setId !== setId) return false;
-    if (q && !normalize(c.name).includes(q) && !normalize(c.id).includes(q)) return false;
+    if (q && !normalize(c.name).includes(q) &&
+        !normalize(c.enName || "").includes(q) &&
+        !normalize(c.id).includes(q)) return false;
     if (useDetail) {
       const d = state.details.get(c.id);
       if (!d) return false; // 詳細未取得のカードは取得され次第反映される
@@ -319,19 +336,41 @@ function applyFilter() {
     }
     return true;
   });
-  state.renderedCount = 0;
-  els.grid.innerHTML = "";
-  renderMoreCards();
+  renderGrid();
+  schedulePrefetch();
 }
 
-function renderMoreCards() {
-  const end = Math.min(state.renderedCount + GRID_CHUNK, state.filtered.length);
+// 全件を一度に描画する (画面外セルは content-visibility: auto で描画コストほぼゼロ)
+function renderGrid() {
   const frag = document.createDocumentFragment();
-  for (let i = state.renderedCount; i < end; i++) {
-    frag.appendChild(makeCardCell(state.filtered[i]));
+  for (const card of state.filtered) {
+    frag.appendChild(makeCardCell(card));
   }
+  els.grid.innerHTML = "";
   els.grid.appendChild(frag);
-  state.renderedCount = end;
+}
+
+// ---------- サムネ先読み ----------
+// 表示中リストのサムネを裏で順にダウンロードしてブラウザキャッシュを温めておく。
+// スクロールが追いついた時にはキャッシュ済みなので即表示される。
+let prefetchToken = 0;
+
+function schedulePrefetch() {
+  if (navigator.connection?.saveData) return; // 省データモードでは先読みしない
+  const token = ++prefetchToken;
+  // 画面内に見えている分の読み込みを優先させるため少し待ってから開始
+  setTimeout(() => {
+    if (token !== prefetchToken) return;
+    const urls = state.filtered.map(thumbUrl).filter(Boolean);
+    let i = 0;
+    const step = () => {
+      if (token !== prefetchToken || i >= urls.length) return;
+      const img = new Image();
+      img.onload = img.onerror = step;
+      img.src = urls[i++];
+    };
+    for (let k = 0; k < 6; k++) step(); // 同時6本で順次先読み
+  }, 400);
 }
 
 function makeCardCell(card) {
@@ -772,15 +811,15 @@ function renderModalInfo(detail) {
   const card = state.cardById.get(state.modalCardId);
   if (!card || !detail) return;
   const parts = [
-    `<div class="mi-name">${esc(detail.name || card.name)}</div>`,
+    `<div class="mi-name">${esc(card.name)}</div>`,
     `<div class="mi-dim">${esc(card.setName)} · ${esc(card.id)}</div>`,
   ];
   const info = [];
-  if (detail.category) info.push(detail.category === "Pokemon" ? "ポケモン" : detail.category === "Trainer" ? "トレーナーズ" : detail.category);
+  if (detail.category) info.push(CATEGORY_LABELS[detail.category] || detail.category);
   if (detail.hp) info.push(`HP ${detail.hp}`);
-  if (detail.types?.length) info.push(detail.types.join("/"));
-  if (detail.stage) info.push(detail.stage);
-  if (detail.rarity) info.push(detail.rarity);
+  if (detail.types?.length) info.push(detail.types.map(jaType).join("/"));
+  if (detail.stage) info.push(jaStage(detail.stage));
+  if (detail.rarity) info.push(jaRarity(detail.rarity));
   if (info.length) parts.push(`<div>${esc(info.join(" · "))}</div>`);
   els.modalInfo.innerHTML = parts.join("");
 }
@@ -803,12 +842,6 @@ function bindEvents() {
     select.addEventListener("change", applyFilter);
   }
   els.reloadBtn.addEventListener("click", () => loadCards(true));
-
-  new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting && state.renderedCount < state.filtered.length) {
-      renderMoreCards();
-    }
-  }, { rootMargin: "600px" }).observe(els.sentinel);
 
   els.deckName.addEventListener("input", () => {
     state.deckName = els.deckName.value;

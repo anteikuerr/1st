@@ -143,6 +143,9 @@ button.danger { color: var(--danger); }
   border-radius: 8px;
   cursor: pointer;
   transition: transform .1s ease;
+  /* 画面外セルの描画コストを省いて全件描画でも軽くする */
+  content-visibility: auto;
+  contain-intrinsic-size: 140px 196px;
 }
 .card-cell:hover { transform: translateY(-3px); }
 
@@ -200,8 +203,6 @@ button.danger { color: var(--danger); }
   transition: opacity .1s;
 }
 .card-cell:hover .card-id { opacity: 1; }
-
-.grid-sentinel { height: 4px; }
 
 /* ---------- デッキパネル ---------- */
 .deck-panel {
