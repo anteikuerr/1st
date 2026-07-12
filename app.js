@@ -6,7 +6,7 @@
 const API_BASE = "https://api.tcgdex.net/v2";
 const SERIES_ID = "tcgp";
 const CACHE_KEY = "ppdb.cards.v3";
-const DETAILS_KEY = "ppdb.details.v2"; // v2: わざ・特性・弱点・にげるを含む
+const DETAILS_KEY = "ppdb.details.v3"; // v3: 進化元(dv)を含む
 const DECKS_KEY = "ppdb.decks.v1";
 const CURRENT_KEY = "ppdb.current.v1";
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
@@ -281,6 +281,7 @@ async function hydrateDetails(preloaded) {
         if (d.abilities?.length) slim.ab = d.abilities.map((a) => ({ n: a.name, e: a.effect }));
         if (d.weaknesses?.length) slim.w = d.weaknesses.map((w) => ({ t: w.type, v: w.value }));
         if (d.retreat != null) slim.rc = d.retreat;
+        if (d.evolveFrom) slim.dv = d.evolveFrom;
         state.details.set(id, slim);
         cache.cards[id] = slim;
       } catch { /* 失敗したカードは次回に再試行 */ }
@@ -715,6 +716,37 @@ function renderWarnings() {
   els.deckWarnings.innerHTML = msgs.join("<br>");
 }
 
+// ---------- おまかせ構築 ----------
+const TYPE_TO_ENERGY_ID = {
+  Grass: "grass", Fire: "fire", Water: "water", Lightning: "lightning",
+  Psychic: "psychic", Fighting: "fighting", Darkness: "darkness", Metal: "metal",
+  "草": "grass", "炎": "fire", "水": "water", "雷": "lightning",
+  "超": "psychic", "闘": "fighting", "悪": "darkness", "鋼": "metal",
+};
+
+function runSuggest() {
+  if (state.details.size < state.allCards.length * 0.5) {
+    toast("カードデータの取り込み中です。少し待ってから試してください");
+    return;
+  }
+  const result = suggestDeck({
+    cards: state.allCards,
+    details: state.details,
+    deck: state.deck,
+  });
+  if (result.error) {
+    toast(result.error, 3000);
+    return;
+  }
+  state.deck = result.deck;
+  state.energies = [...new Set(result.energies.map((t) => TYPE_TO_ENERGY_ID[t]).filter(Boolean))].slice(0, 3);
+  state.deckName = result.name;
+  els.deckName.value = result.name;
+  for (const id of Object.keys(result.deck)) fetchDetail(id);
+  onDeckChanged();
+  toast(`「${result.name}」を提案しました ✨ 気に入らないカードは入れ替えてOK`, 3200);
+}
+
 // ---------- 保存・読み込み ----------
 function loadSavedDecks() {
   try {
@@ -954,6 +986,7 @@ function bindEvents() {
     persistCurrent();
   });
 
+  $("#suggest-deck").addEventListener("click", runSuggest);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
   $("#clear-deck").addEventListener("click", clearDeck);

@@ -283,6 +283,26 @@ button.danger { color: var(--danger); }
 }
 #deck-progress-fill.full { background: var(--ok); }
 
+.suggest-btn {
+  width: 100%;
+  margin-top: 2px;
+  background: linear-gradient(135deg, #ffcb3b, #ff9d3b);
+  color: var(--accent-text);
+  border: none;
+  font-weight: bold;
+  font-size: 14px;
+  padding: 10px;
+  transition: filter .12s, transform .08s;
+}
+.suggest-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+.suggest-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 6px 0 10px;
+}
+
 .deck-name-row input { width: 100%; }
 
 .energy-row {
