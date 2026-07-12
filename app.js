@@ -6,7 +6,7 @@
 const API_BASE = "https://api.tcgdex.net/v2";
 const SERIES_ID = "tcgp";
 const CACHE_KEY = "ppdb.cards.v3";
-const DETAILS_KEY = "ppdb.details.v1";
+const DETAILS_KEY = "ppdb.details.v2"; // v2: わざ・特性・弱点・にげるを含む
 const DECKS_KEY = "ppdb.decks.v1";
 const CURRENT_KEY = "ppdb.current.v1";
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24時間
@@ -266,6 +266,17 @@ async function hydrateDetails(preloaded) {
           s: d.stage || null,
           r: d.rarity || null,
         };
+        if (d.attacks?.length) {
+          slim.a = d.attacks.map((a) => {
+            const atk = { c: a.cost || [], n: a.name };
+            if (a.damage != null) atk.d = a.damage;
+            if (a.effect) atk.e = a.effect;
+            return atk;
+          });
+        }
+        if (d.abilities?.length) slim.ab = d.abilities.map((a) => ({ n: a.name, e: a.effect }));
+        if (d.weaknesses?.length) slim.w = d.weaknesses.map((w) => ({ t: w.type, v: w.value }));
+        if (d.retreat != null) slim.rc = d.retreat;
         state.details.set(id, slim);
         cache.cards[id] = slim;
       } catch { /* 失敗したカードは次回に再試行 */ }
@@ -529,26 +540,34 @@ function restoreCurrent() {
   } catch { /* ignore */ }
 }
 
+// 取り込み済みの軽量詳細 (state.details) をフル詳細と同じ形に展開する
+function detailFromSlim(cardId) {
+  const d = state.details.get(cardId);
+  if (!d) return null;
+  return {
+    category: d.c,
+    hp: d.h,
+    types: d.t,
+    stage: d.s,
+    rarity: d.r,
+    attacks: (d.a || []).map((a) => ({ cost: a.c, name: a.n, damage: a.d, effect: a.e })),
+    abilities: (d.ab || []).map((a) => ({ name: a.n, effect: a.e })),
+    weaknesses: (d.w || []).map((w) => ({ type: w.t, value: w.v })),
+    retreat: d.rc,
+  };
+}
+
 async function fetchDetail(cardId) {
   if (state.detailCache.has(cardId)) return state.detailCache.get(cardId);
-  // ローカルデータ利用時は取り込み済みの詳細から組み立てる (通信しない)
-  if (state.localData) {
-    const d = state.details.get(cardId);
-    if (!d) return null;
-    const card = state.cardById.get(cardId);
-    const detail = {
-      name: card?.name,
-      category: d.c,
-      hp: d.h,
-      types: d.t,
-      stage: d.s,
-      rarity: d.r,
-    };
-    state.detailCache.set(cardId, detail);
+  // 取り込み済みデータがあれば通信せずに使う
+  const slim = detailFromSlim(cardId);
+  if (slim) {
+    state.detailCache.set(cardId, slim);
     renderWarnings();
-    if (state.modalCardId === cardId) renderModalInfo(detail);
-    return detail;
+    if (state.modalCardId === cardId) renderModalInfo(slim);
+    return slim;
   }
+  if (state.localData) return null;
   try {
     const detail = await fetchJson(`${API_BASE}/${state.lang}/cards/${cardId}`);
     state.detailCache.set(cardId, detail);
@@ -838,8 +857,41 @@ function renderModalInfo(detail) {
   if (detail.stage) info.push(jaStage(detail.stage));
   if (detail.rarity) info.push(jaRarity(detail.rarity));
   if (info.length) parts.push(`<div>${esc(info.join(" · "))}</div>`);
+
+  // 特性・わざ
+  for (const ab of detail.abilities || []) {
+    parts.push(
+      `<div class="mi-move"><div class="mi-move-head"><span class="mi-tag">特性</span><b>${esc(ab.name || "")}</b></div>` +
+      (ab.effect ? `<div class="mi-effect">${esc(jaEffect(ab.effect))}</div>` : "") + `</div>`
+    );
+  }
+  for (const atk of detail.attacks || []) {
+    const cost = (atk.cost || []).map(costIcon).join("");
+    parts.push(
+      `<div class="mi-move"><div class="mi-move-head"><span class="mi-cost">${esc(cost)}</span><b>${esc(atk.name || "")}</b>` +
+      `<span class="mi-damage">${esc(atk.damage ?? "")}</span></div>` +
+      (atk.effect ? `<div class="mi-effect">${esc(jaEffect(atk.effect))}</div>` : "") + `</div>`
+    );
+  }
+
+  const foot = [];
+  if (detail.weaknesses?.length) {
+    foot.push(`弱点: ${detail.weaknesses.map((w) => jaType(w.type) + (w.value || "")).join(", ")}`);
+  }
+  if (detail.retreat != null) foot.push(`にげる: ${detail.retreat}`);
+  if (foot.length) parts.push(`<div class="mi-dim">${esc(foot.join(" · "))}</div>`);
+
   els.modalInfo.innerHTML = parts.join("");
 }
+
+// わざのエネルギーコスト表示用アイコン (英語/日本語どちらのタイプ名にも対応)
+const COST_ICONS = {
+  Grass: "🌿", Fire: "🔥", Water: "💧", Lightning: "⚡", Psychic: "🔮",
+  Fighting: "✊", Darkness: "🌙", Metal: "⚙️", Colorless: "⚪", Dragon: "🐉",
+  "草": "🌿", "炎": "🔥", "水": "💧", "雷": "⚡", "超": "🔮",
+  "闘": "✊", "悪": "🌙", "鋼": "⚙️", "無色": "⚪", "ドラゴン": "🐉",
+};
+const costIcon = (t) => COST_ICONS[t] || "⚪";
 
 function closeModals() {
   els.cardModal.classList.add("hidden");

@@ -379,6 +379,36 @@ button.danger { color: var(--danger); }
 .modal-info .mi-name { font-size: 16px; font-weight: bold; }
 .modal-info .mi-dim { color: var(--text-dim); }
 
+.mi-move {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-top: 7px;
+}
+.mi-move-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mi-move-head b { flex: 1; }
+.mi-tag {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.mi-cost { letter-spacing: 1px; font-size: 12px; }
+.mi-damage { font-weight: bold; font-size: 15px; }
+.mi-effect {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
 .modal-actions { margin-top: 12px; display: flex; gap: 8px; }
 .modal-actions button { flex: 1; }
 
