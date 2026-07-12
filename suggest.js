@@ -28,6 +28,7 @@ const SUGGEST_WEIGHTS = {
   exB: 30,     // exボーナス
   stageP: 10,  // 進化段数ごとのペナルティ (立ち上がりの遅さ)
   costP: 35,   // 最大打点ワザのエネルギーコスト1個あたりのペナルティ
+  abB: 0,      // 特性持ちボーナス (シミュ検証の結果、一律加点は逆効果なので0)
 };
 
 function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS }) {
@@ -53,7 +54,8 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
     return dmg - cost * weights.costP + (d.h || 0) * weights.hpW +
-      (/ex$/.test(card.name) ? weights.exB : 0);
+      (/ex$/.test(card.name) ? weights.exB : 0) +
+      ((d.ab || []).length ? (weights.abB || 0) : 0);
   };
   const byName = new Map();
   for (const card of cards) {
@@ -196,7 +198,8 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     }
     if (!dmg) return -1;
     return dmg - cost * weights.costP + (e.d.h || 0) * weights.hpW +
-      (/ex$/.test(e.card.name) ? weights.exB : 0);
+      (/ex$/.test(e.card.name) ? weights.exB : 0) +
+      ((e.d.ab || []).length ? (weights.abB || 0) : 0);
   };
 
   const candidates = [];

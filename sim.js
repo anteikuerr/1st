@@ -1,16 +1,14 @@
-/* ポケポケ簡易対戦シミュレータ v2
+/* ポケポケ簡易対戦シミュレータ v3
  * デッキの強さをモンテカルロ対戦で見積もる。基本ルールをモデル化:
- *  - 3ポイント先取 / exはきぜつで2ポイント
- *  - 初手5枚 (たねが出るまで引き直し) / ベンチ3匹
- *  - 先攻の最初の番はエネルギーなし
- *  - エネルギーゾーンから毎番1個 (デッキのタイプからランダム)
- *  - 出した番と最初の番は進化できない / ふしぎなアメで2進化に飛べる
- *  - 弱点+20 / ワザはコスト(タイプ指定含む)を満たしたときのみ
- * v2で追加: ワザの付帯効果を効果テキストから解析して実際に処理する
- *  - コイン依存ダメージ (オモテ追加 / ウラ失敗 / N枚×X / ウラまで)
- *  - ベンチ狙撃・ベンチ全体・自傷・回復・自己エネ加速・自己エネトラッシュ
- *  - どく/ねむり/マヒ、次ターンのダメージ軽減
- * 未対応: 特性、上記以外の効果 (テキストが読めないものは素点のみ)
+ *  - 3ポイント先取 / ex=2pt / メガex=3pt
+ *  - 初手5枚 (たね保証) / ベンチ3匹 / 先攻の最初の番はエネルギーなし
+ *  - 出した番と最初の番は進化できない / ふしぎなアメ
+ *  - 弱点+20 / タイプ指定コスト
+ * v2: ワザの付帯効果 (コイン/狙撃/自傷/回復/加速/どく・ねむり・マヒ/軽減/可変ダメージ)
+ * v3: 特性 (軽減/HP増/打点強化/エネ加速/設置ダメージ/毎ターン回復・狙撃)、
+ *     やけど・こんらん、ワザロック、相手エネ破壊、味方エネ加速、
+ *     条件付き追加ダメージ、全体攻撃、連続攻撃 (メガガルーラex)
+ * 未対応: docs/simulation-notes.md の未対応リスト参照
  */
 
 function mulberry32(seed) {
@@ -25,7 +23,7 @@ function mulberry32(seed) {
 
 const SIM_ENERGY_LETTER = { G: "Grass", R: "Fire", W: "Water", L: "Lightning", P: "Psychic", F: "Fighting", D: "Darkness", M: "Metal" };
 
-// 効果テキスト(英語)を解析して構造化する
+// ワザの効果テキスト(英語)を解析して構造化する
 function parseAttackFx(text) {
   if (!text) return null;
   const fx = {};
@@ -41,24 +39,77 @@ function parseAttackFx(text) {
   if ((m = text.match(/This Pokémon also does (\d+) damage to itself/i))) fx.selfDmg = +m[1];
   if ((m = text.match(/does (\d+) damage to each of your opponent's Benched Pokémon/i))) fx.benchAll = +m[1];
   else if ((m = text.match(/does (\d+) damage to 1 of your opponent's Benched Pokémon/i))) fx.benchSnipe = +m[1];
+  else if ((m = text.match(/This attack does (\d+) damage to each of your opponent'?s Pokémon\./i))) fx.hitAll = +m[1];
   else if ((m = text.match(/This attack does (\d+) damage to 1 of your opponent's Pokémon/i))) fx.snipeAny = +m[1];
   if ((m = text.match(/Heal (\d+) damage from this Pokémon/i))) fx.heal = +m[1];
   if (/Active Pokémon is now Poisoned/i.test(text)) fx.poison = true;
   if (/Active Pokémon is now Asleep/i.test(text)) fx.sleep = true;
+  if (/Active Pokémon is now Burned/i.test(text)) fx.burn = true;
+  if (/Active Pokémon is now Confused/i.test(text)) fx.confuse = true;
   if (/Active Pokémon is now Paralyzed/i.test(text)) {
     if (/If heads/i.test(text)) fx.paralyzeFlip = true;
     else fx.paralyze = true;
   }
   if ((m = text.match(/Discard (a|\d+) \{\w\} Energy from this Pokémon/i))) fx.discardSelf = m[1] === "a" ? 1 : +m[1];
-  if (/Discard all(?: \{\w\})? Energy from this Pokémon/i.test(text)) fx.discardSelf = 99;
+  if (/Discard all(?: \{\w\}| Water| Fire)? Energy from this Pokémon/i.test(text)) fx.discardSelf = 99;
   if ((m = text.match(/Take a \{(\w)\} Energy from your Energy Zone and attach it to this Pokémon/i))) {
     fx.accelSelf = SIM_ENERGY_LETTER[m[1]] || "Colorless";
+  }
+  if ((m = text.match(/Take (a|\d+) \{(\w)\} Energy from your Energy Zone and attach (?:it|them) to (?:1 of your Benched|your Benched)/i))) {
+    fx.accelBench = { n: m[1] === "a" ? 1 : +m[1], type: SIM_ENERGY_LETTER[m[2]] || "Colorless" };
   }
   if ((m = text.match(/During your opponent's next turn, this Pokémon takes [−–-](\d+) damage from attacks/i))) fx.shield = +m[1];
   if ((m = text.match(/does (\d+) more damage for each Energy attached to your opponent's Active Pokémon/i))) fx.perOppEnergy = +m[1];
   if ((m = text.match(/This attack does (\d+)( more)? damage for each of your Benched/i))) {
     fx.perMyBench = { per: +m[1], more: !!m[2] };
   }
+  // ワザロック (このワザを受けたポケモンは次の番ワザが使えない)
+  if (/the Defending Pokémon can'?t attack/i.test(text)) fx.lockAttack = true;
+  // 相手のエネルギー破壊
+  if ((m = text.match(/[Dd]iscard (a|\d+) random Energy from your opponent'?s Active Pokémon/i))) {
+    fx.oppDiscard = m[1] === "a" ? 1 : +m[1];
+    if (/Flip a coin\. If heads,[^.]*discard/i.test(text)) fx.oppDiscardFlip = true;
+  } else if (/[Dd]iscard an? \{\w\} Energy from your opponent'?s Active Pokémon/i.test(text)) {
+    fx.oppDiscard = 1;
+  }
+  // 条件付き追加ダメージ
+  if ((m = text.match(/If your opponent'?s Active Pokémon is a Pokémon \{?ex\}?, this attack does (\d+) more damage/i))) fx.ifOppEx = +m[1];
+  if ((m = text.match(/If your opponent'?s Active Pokémon has damage on it, this attack does (\d+) more damage/i))) fx.ifOppDamaged = +m[1];
+  if ((m = text.match(/If your opponent'?s Active Pokémon is a Basic Pokémon, this attack does (\d+) more damage/i))) fx.ifOppBasic = +m[1];
+  if ((m = text.match(/If your opponent'?s Active Pokémon is (?:Poisoned|affected by a Special Condition), this attack does (\d+) more damage/i))) fx.ifOppStatus = +m[1];
+  if ((m = text.match(/If this Pokémon has damage on it, this attack does (\d+) more damage/i))) fx.ifSelfDamaged = +m[1];
+  if ((m = text.match(/If this Pokémon has no damage on it, this attack does (\d+) more damage/i))) fx.ifSelfClean = +m[1];
+  // 連続攻撃 (メガガルーラex)
+  if ((m = text.match(/This attack is used twice in a row\. The second attack does (\d+) damage/i))) fx.doubleSecond = +m[1];
+  return Object.keys(fx).length ? fx : null;
+}
+
+// 特性の効果テキストを解析する
+function parseAbilityFx(text) {
+  if (!text) return null;
+  const fx = {};
+  let m;
+  if ((m = text.match(/This Pokémon takes [−–-](\d+) damage from attacks/i))) fx.reduce = +m[1];
+  if ((m = text.match(/gets \+(\d+) HP/i))) fx.hpPlus = +m[1];
+  if ((m = text.match(/Attacks used by your (?:\{(\w)\} )?Pokémon(?: and \{\w\} Pokémon)? do \+(\d+) damage to your opponent'?s Active Pokémon/i))) {
+    fx.teamBoost = { type: m[1] ? SIM_ENERGY_LETTER[m[1]] : null, amount: +m[2] };
+  }
+  if ((m = text.match(/Whenever you attach an? \{(\w)\} Energy from your Energy Zone to this Pokémon, do (\d+) damage to your opponent'?s Active Pokémon/i))) {
+    fx.onAttach = { type: SIM_ENERGY_LETTER[m[1]] || null, dmg: +m[2] };
+  }
+  if ((m = text.match(/Once during your turn, you may take (?:a|an|1|(\d+)) \{(\w)\} Energy from your Energy Zone and attach it to (.+?)\./i))) {
+    const target = m[3];
+    fx.accel = {
+      n: +(m[1] || 1),
+      type: SIM_ENERGY_LETTER[m[2]] || "Colorless",
+      to: /this Pokémon/i.test(target) ? "self"
+        : /Active Spot/i.test(target) ? "active"
+        : "best",
+    };
+  }
+  if ((m = text.match(/Once during your turn, you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
+  else if ((m = text.match(/Once during your turn, you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
+  if ((m = text.match(/Once during your turn, [^.]*you may do (\d+) damage to your opponent'?s Active Pokémon/i))) fx.turnSnipe = +m[1];
   return Object.keys(fx).length ? fx : null;
 }
 
@@ -73,16 +124,29 @@ function attackEv(dmg, fx) {
   if (fx.perMyBench) ev = fx.perMyBench.more ? ev + fx.perMyBench.per * 2 : fx.perMyBench.per * 2;
   if (fx.perOppEnergy) ev += fx.perOppEnergy * 2;
   if (fx.snipeAny) ev = Math.max(ev, fx.snipeAny * 0.9);
+  if (fx.hitAll) ev = Math.max(ev, fx.hitAll * 3);
   if (fx.benchAll) ev += fx.benchAll;
   if (fx.benchSnipe) ev += fx.benchSnipe * 0.5;
   if (fx.selfDmg) ev -= fx.selfDmg * 0.3;
   if (fx.heal) ev += fx.heal * 0.4;
   if (fx.poison) ev += 15;
+  if (fx.burn) ev += 15;
   if (fx.sleep || fx.paralyze) ev += 20;
+  if (fx.confuse) ev += 12;
   if (fx.paralyzeFlip) ev += 10;
+  if (fx.lockAttack) ev += 20;
+  if (fx.oppDiscard) ev += (fx.oppDiscardFlip ? 8 : 15) * Math.min(fx.oppDiscard, 2);
   if (fx.discardSelf) ev -= fx.discardSelf === 99 ? 30 : fx.discardSelf * 10;
   if (fx.accelSelf) ev += 15;
+  if (fx.accelBench) ev += 10;
   if (fx.shield) ev += fx.shield * 0.5;
+  if (fx.ifOppEx) ev += fx.ifOppEx * 0.4;
+  if (fx.ifOppDamaged) ev += fx.ifOppDamaged * 0.5;
+  if (fx.ifOppBasic) ev += fx.ifOppBasic * 0.4;
+  if (fx.ifOppStatus) ev += fx.ifOppStatus * 0.3;
+  if (fx.ifSelfDamaged) ev += fx.ifSelfDamaged * 0.5;
+  if (fx.ifSelfClean) ev += fx.ifSelfClean * 0.4;
+  if (fx.doubleSecond) ev += fx.doubleSecond;
   return ev;
 }
 
@@ -106,6 +170,11 @@ function buildSimDeck({ deck, energies, cardById, details }) {
           ev: attackEv(dmg, fx),
         };
       }).filter((a) => a.ev > 0);
+      let abFx = null;
+      for (const ab of d.ab || []) {
+        const f = parseAbilityFx(ab.e);
+        if (f) abFx = { ...(abFx || {}), ...f };
+      }
       cards.push({
         id,
         name: card.name,
@@ -113,13 +182,13 @@ function buildSimDeck({ deck, energies, cardById, details }) {
         basic: isPokemon && (d.s === "Basic" || d.s === "たね"),
         stage2: isPokemon && /2|Stage2|Stage 2/.test(d.s || ""),
         evolvesFrom: d.dv ? (typeof jaCardName === "function" ? jaCardName(d.dv) : d.dv) : null,
-        hp: d.h || 0,
+        hp: (d.h || 0) + (abFx?.hpPlus || 0),
         ex: /ex$/.test(card.name),
-        // メガex: きぜつすると相手に3ポイント入る
         mega: /ex$/.test(card.name) && (/^メガ/.test(card.name) || /^Mega /.test(card.enName || card.name)),
         weakness: (d.w || [])[0]?.t || null,
         types: d.t || [],
         attacks,
+        abFx,
         trainer: !isPokemon ? (card.enName || card.name) : null,
       });
     }
@@ -148,7 +217,8 @@ function simulateGame(simDeckA, simDeckB, rng) {
 
   const inst = (c, turn) => ({
     ...c, energy: [], damage: 0, playedTurn: turn,
-    poison: false, sleep: false, para: false, shieldUntil: -1,
+    poison: false, burn: false, sleep: false, para: false, confuse: false,
+    lockAttack: false, shieldUntil: -1, shieldValue: 0,
   });
   const board = (p) => [p.active, ...p.bench].filter(Boolean);
 
@@ -191,7 +261,6 @@ function simulateGame(simDeckA, simDeckB, rng) {
     }
   }
 
-  // きぜつ処理: trueを返したら勝敗確定 (meが勝ち)
   const pointsFor = (mon) => (mon.mega ? 3 : mon.ex ? 2 : 1);
   const knockOut = (me, op, mon) => {
     if (mon === op.active) {
@@ -200,7 +269,6 @@ function simulateGame(simDeckA, simDeckB, rng) {
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
       op.active = op.bench.shift();
-      // バトル場に出ると特殊状態は消える (新しく出る子は状態なし)
     } else {
       const i = op.bench.indexOf(mon);
       if (i >= 0) {
@@ -208,6 +276,25 @@ function simulateGame(simDeckA, simDeckB, rng) {
         me.points += pointsFor(mon);
         if (me.points >= 3) return true;
       }
+    }
+    return false;
+  };
+
+  // ダメージ軽減 (特性の常時軽減 + ワザのシールド)
+  const applyReduction = (def, dmg, turnNo) => {
+    let out = dmg;
+    if (def.abFx?.reduce) out -= def.abFx.reduce;
+    if (def.shieldUntil >= turnNo) out -= def.shieldValue;
+    return Math.max(0, out);
+  };
+
+  // エネルギーゾーンからmonにエネルギーをつける (特性の設置ダメージ発動込み)
+  const attachEnergy = (me, op, mon, type, turnNo) => {
+    mon.energy.push(type);
+    const oa = mon.abFx?.onAttach;
+    if (oa && (!oa.type || oa.type === type) && op.active) {
+      op.active.damage += oa.dmg;
+      if (op.active.damage >= op.active.hp) return knockOut(me, op, op.active);
     }
     return false;
   };
@@ -273,11 +360,7 @@ function simulateGame(simDeckA, simDeckB, rng) {
         }
         if (idx >= 0) {
           const evo = me.hand.splice(idx, 1)[0];
-          const upgraded = {
-            ...inst(evo, me.turn),
-            energy: spot.energy, damage: spot.damage,
-          };
-          // 進化すると特殊状態は回復する (公式ルール)
+          const upgraded = { ...inst(evo, me.turn), energy: spot.energy, damage: spot.damage };
           if (me.active === spot) me.active = upgraded;
           else me.bench[me.bench.indexOf(spot)] = upgraded;
         }
@@ -294,29 +377,81 @@ function simulateGame(simDeckA, simDeckB, rng) {
         cands.sort((x, y) => attackerValue(y) - attackerValue(x));
         target = cands[0];
       }
-      if (target) target.energy.push(type);
+      if (target && attachEnergy(me, op, target, type, turnNo)) return me === A ? 1 : 0;
     }
 
-    // 交代 (簡易: にげるコスト無視、攻撃不能時のみ)
+    // 特性 (毎ターン1回系)
+    for (const mon of board(me)) {
+      const ab = mon.abFx;
+      if (!ab) continue;
+      if (ab.accel) {
+        let target = null;
+        if (ab.accel.to === "self") target = mon;
+        else if (ab.accel.to === "active") target = me.active;
+        else {
+          const cands = board(me).sort((x, y) => attackerValue(y) - attackerValue(x));
+          target = cands[0];
+        }
+        if (target) {
+          for (let k = 0; k < ab.accel.n; k++) {
+            if (attachEnergy(me, op, target, ab.accel.type, turnNo)) return me === A ? 1 : 0;
+          }
+        }
+      }
+      if (ab.turnHealActive && me.active) me.active.damage = Math.max(0, me.active.damage - ab.turnHealActive);
+      if (ab.turnHeal && me.active) me.active.damage = Math.max(0, me.active.damage - ab.turnHeal);
+      if (ab.turnSnipe && op.active) {
+        op.active.damage += ab.turnSnipe;
+        if (op.active.damage >= op.active.hp && knockOut(me, op, op.active)) return me === A ? 1 : 0;
+      }
+    }
+
+    // 交代 (簡易: 攻撃不能時のみ)
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para) {
       const readyIdx = me.bench.findIndex((m) => bestUsable(m));
       if (readyIdx >= 0 && attackerValue(me.bench[readyIdx]) > attackerValue(me.active)) {
         const tmp = me.active;
-        // 逃げると特殊状態は消える
-        tmp.poison = tmp.sleep = tmp.para = false;
+        tmp.poison = tmp.burn = tmp.sleep = tmp.para = tmp.confuse = false;
         me.active = me.bench[readyIdx];
         me.bench[readyIdx] = tmp;
       }
     }
 
-    // 攻撃 (ねむり/マヒ中は不可)
-    if (me.active && !me.active.sleep && !me.active.para) {
+    // 攻撃 (ねむり/マヒ/ワザロック中は不可)
+    let attackAllowed = me.active && !me.active.sleep && !me.active.para && !me.active.lockAttack;
+    // こんらん: コインでウラならワザ失敗
+    if (attackAllowed && me.active.confuse && rng() < 0.5) attackAllowed = false;
+
+    if (attackAllowed) {
       const attack = bestUsable(me.active);
       if (attack && op.active) {
         const fx = attack.fx || {};
-        let dmg = attack.dmg;
+        const boost = () => {
+          // 特性の打点強化 (自分の場全体から集計)
+          let b = 0;
+          for (const mon of board(me)) {
+            const tb = mon.abFx?.teamBoost;
+            if (tb && (!tb.type || (me.active.types || []).includes(tb.type))) b += tb.amount;
+          }
+          return b;
+        };
 
-        // コイン系
+        const resolveHit = (baseDmg) => {
+          // 1回分の攻撃解決。勝敗が決まったら 'A' か 'B' を返す
+          let dmg = baseDmg;
+          if (dmg > 0) {
+            dmg += boost();
+            if (op.active.weakness && (me.active.types || []).includes(op.active.weakness)) dmg += 20;
+            dmg = applyReduction(op.active, dmg, turnNo);
+            op.active.damage += dmg;
+            if (op.active.damage >= op.active.hp) {
+              if (knockOut(me, op, op.active)) return me === A ? "A" : "B";
+            }
+          }
+          return null;
+        };
+
+        let dmg = attack.dmg;
         if (fx.multiFlip) {
           let heads = 0;
           for (let i = 0; i < fx.multiFlip.n; i++) if (rng() < 0.5) heads++;
@@ -329,21 +464,27 @@ function simulateGame(simDeckA, simDeckB, rng) {
         }
         if (fx.flipBonus && rng() < 0.5) dmg += fx.flipBonus;
         if (fx.tailsNothing && rng() < 0.5) dmg = 0;
-
-        // 可変ダメージ
         if (fx.perMyBench) {
           dmg = fx.perMyBench.more ? dmg + fx.perMyBench.per * me.bench.length : fx.perMyBench.per * me.bench.length;
         }
         if (fx.perOppEnergy) dmg += fx.perOppEnergy * op.active.energy.length;
+        // 条件付き追加ダメージ
+        if (fx.ifOppEx && op.active.ex) dmg += fx.ifOppEx;
+        if (fx.ifOppDamaged && op.active.damage > 0) dmg += fx.ifOppDamaged;
+        if (fx.ifOppBasic && op.active.basic) dmg += fx.ifOppBasic;
+        if (fx.ifOppStatus && (op.active.poison || op.active.burn || op.active.sleep || op.active.para || op.active.confuse)) dmg += fx.ifOppStatus;
+        if (fx.ifSelfDamaged && me.active.damage > 0) dmg += fx.ifSelfDamaged;
+        if (fx.ifSelfClean && me.active.damage === 0) dmg += fx.ifSelfClean;
 
-        if (dmg > 0) {
-          // 弱点 (自分のタイプで判定)
-          if (op.active.weakness && (me.active.types || []).includes(op.active.weakness)) dmg += 20;
-          // 相手の軽減シールド
-          if (op.active.shieldUntil >= turnNo) dmg = Math.max(0, dmg - op.active.shieldValue);
+        // 全体攻撃
+        if (fx.hitAll) {
+          for (const tgt of board(op).slice()) {
+            tgt.damage += fx.hitAll;
+            if (tgt.damage >= tgt.hp && knockOut(me, op, tgt)) return me === A ? 1 : 0;
+          }
+          dmg = 0;
         }
-
-        // 狙撃 / ベンチ全体
+        // 狙撃
         if (fx.snipeAny) {
           const targets = board(op);
           targets.sort((x, y) => (y.hp - y.damage <= fx.snipeAny ? 1 : 0) - (x.hp - x.damage <= fx.snipeAny ? 1 : 0) || attackerValue(y) - attackerValue(x));
@@ -365,15 +506,24 @@ function simulateGame(simDeckA, simDeckB, rng) {
           }
         }
 
-        // 本体ダメージ
-        if (dmg > 0 && op.active) {
-          op.active.damage += dmg;
+        // 本体ダメージ (+ 連続攻撃の2発目)
+        const r1 = resolveHit(dmg);
+        if (r1) return r1 === "A" ? 1 : 0;
+        if (fx.doubleSecond && op.active) {
+          const r2 = resolveHit(fx.doubleSecond);
+          if (r2) return r2 === "A" ? 1 : 0;
         }
 
         // 自分への効果
         if (fx.selfDmg) me.active.damage += fx.selfDmg;
         if (fx.heal) me.active.damage = Math.max(0, me.active.damage - fx.heal);
-        if (fx.accelSelf) me.active.energy.push(fx.accelSelf);
+        if (fx.accelSelf && attachEnergy(me, op, me.active, fx.accelSelf, turnNo)) return me === A ? 1 : 0;
+        if (fx.accelBench && me.bench.length) {
+          const tgt = me.bench.slice().sort((x, y) => attackerValue(y) - attackerValue(x))[0];
+          for (let k = 0; k < fx.accelBench.n; k++) {
+            if (attachEnergy(me, op, tgt, fx.accelBench.type, turnNo)) return me === A ? 1 : 0;
+          }
+        }
         if (fx.discardSelf) {
           me.active.energy.splice(0, fx.discardSelf === 99 ? me.active.energy.length : fx.discardSelf);
         }
@@ -382,17 +532,22 @@ function simulateGame(simDeckA, simDeckB, rng) {
           me.active.shieldValue = fx.shield;
         }
 
-        // 特殊状態
-        if (op.active && dmg >= 0) {
+        // 相手への追加効果
+        if (op.active) {
+          if (fx.oppDiscard && (!fx.oppDiscardFlip || rng() < 0.5)) {
+            for (let k = 0; k < fx.oppDiscard && op.active.energy.length; k++) {
+              op.active.energy.splice(Math.floor(rng() * op.active.energy.length), 1);
+            }
+          }
           if (fx.poison) op.active.poison = true;
+          if (fx.burn) op.active.burn = true;
           if (fx.sleep) op.active.sleep = true;
+          if (fx.confuse) op.active.confuse = true;
           if (fx.paralyze || (fx.paralyzeFlip && rng() < 0.5)) op.active.para = true;
+          if (fx.lockAttack) op.active.lockAttack = true;
         }
 
-        // きぜつ判定
-        if (op.active && op.active.damage >= op.active.hp) {
-          if (knockOut(me, op, op.active)) return me === A ? 1 : 0;
-        }
+        // 反動きぜつ
         if (me.active && me.active.damage >= me.active.hp) {
           if (knockOut(op, me, me.active)) return op === A ? 1 : 0;
         }
@@ -400,12 +555,18 @@ function simulateGame(simDeckA, simDeckB, rng) {
     } else if (me.active && me.active.para) {
       me.active.para = false; // マヒは自分の番が終わると回復
     }
+    if (me.active) me.active.lockAttack = false; // ワザロックは1ターンで解除
 
-    // ポケモンチェック (どく / ねむり判定)
+    // ポケモンチェック (どく / やけど / ねむり判定)
     for (const [pl, opp] of [[A, B], [B, A]]) {
       if (pl.active?.poison) {
         pl.active.damage += 10;
         if (pl.active.damage >= pl.active.hp && knockOut(opp, pl, pl.active)) return opp === A ? 1 : 0;
+      }
+      if (pl.active?.burn) {
+        pl.active.damage += 20;
+        if (pl.active.damage >= pl.active.hp && knockOut(opp, pl, pl.active)) return opp === A ? 1 : 0;
+        if (rng() < 0.5) pl.active.burn = false;
       }
       if (pl.active?.sleep && rng() < 0.5) pl.active.sleep = false;
     }
