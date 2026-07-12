@@ -67,14 +67,37 @@ def download_file(url, path, retries=3):
             time.sleep(1 + i)
 
 
+# details のスキーマ版。項目を変えたら上げる (古い carddata.json のレジュームを無効化)
+DETAIL_SCHEMA = 2
+
+
 def slim_detail(d):
-    return {
+    slim = {
         "c": d.get("category"),
         "t": d.get("types") or [],
         "h": d.get("hp"),
         "s": d.get("stage"),
         "r": d.get("rarity"),
     }
+    attacks = []
+    for a in d.get("attacks") or []:
+        atk = {"c": a.get("cost") or [], "n": a.get("name")}
+        if a.get("damage") is not None:
+            atk["d"] = a["damage"]
+        if a.get("effect"):
+            atk["e"] = a["effect"]
+        attacks.append(atk)
+    if attacks:
+        slim["a"] = attacks
+    abilities = [{"n": a.get("name"), "e": a.get("effect")} for a in (d.get("abilities") or [])]
+    if abilities:
+        slim["ab"] = abilities
+    weaknesses = d.get("weaknesses") or []
+    if weaknesses:
+        slim["w"] = [{"t": x.get("type"), "v": x.get("value")} for x in weaknesses]
+    if d.get("retreat") is not None:
+        slim["rc"] = d["retreat"]
+    return slim
 
 
 def run_parallel(label, jobs):
@@ -101,12 +124,14 @@ def main():
         if HIGH:
             os.makedirs(IMG_HI_DIR, exist_ok=True)
 
-    # 前回の結果があれば詳細データを再利用 (レジューム)
+    # 前回の結果があれば詳細データを再利用 (レジューム / スキーマが同じ場合のみ)
     prev_details = {}
     if os.path.exists(CARDS_JSON):
         try:
             with open(CARDS_JSON, encoding="utf-8") as f:
-                prev_details = json.load(f).get("details", {})
+                prev = json.load(f)
+            if prev.get("schema") == DETAIL_SCHEMA:
+                prev_details = prev.get("details", {})
         except Exception:
             pass
 
@@ -171,6 +196,7 @@ def main():
     # 4. cards.json 書き出し
     payload = {
         "time": int(time.time() * 1000),
+        "schema": DETAIL_SCHEMA,
         "lang": lang,
         "high": HIGH and not META_ONLY,
         "sets": sets,
