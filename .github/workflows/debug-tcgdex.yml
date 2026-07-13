@@ -1,0 +1,25 @@
+# TCGdex APIの状態診断用 (手動実行のみ)
+name: TCGdex診断
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: シリーズと新セットの有無を確認
+        run: |
+          echo "=== en series/tcgp のセット一覧 ==="
+          curl -s https://api.tcgdex.net/v2/en/series/tcgp | python3 -c "import json,sys; d=json.load(sys.stdin); print([s['id'] for s in d.get('sets',[])])"
+          echo "=== en 全セットのうち B で始まるもの ==="
+          curl -s https://api.tcgdex.net/v2/en/sets | python3 -c "import json,sys; d=json.load(sys.stdin); print([(s['id'], s.get('name')) for s in d if str(s.get('id','')).startswith('B')])"
+          echo "=== en sets/B3 直接取得 ==="
+          curl -s -o /tmp/b3.json -w "HTTP %{http_code}\n" https://api.tcgdex.net/v2/en/sets/B3
+          head -c 400 /tmp/b3.json; echo
+          echo "=== en sets/B3a 直接取得 ==="
+          curl -s -o /tmp/b3a.json -w "HTTP %{http_code}\n" https://api.tcgdex.net/v2/en/sets/B3a
+          head -c 400 /tmp/b3a.json; echo
+          echo "=== ja series/tcgp ==="
+          curl -s -o /tmp/ja.json -w "HTTP %{http_code}\n" https://api.tcgdex.net/v2/ja/series/tcgp
+          head -c 400 /tmp/ja.json; echo
