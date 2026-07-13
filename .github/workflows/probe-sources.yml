@@ -1,0 +1,76 @@
+# 代替カードデータベース候補の調査用 (手動実行のみ)
+name: データソース調査
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: chase-manning/pokemon-tcg-pocket-cards
+        run: |
+          curl -s https://raw.githubusercontent.com/chase-manning/pokemon-tcg-pocket-cards/refs/heads/main/v4.json -o /tmp/v4.json
+          curl -s https://raw.githubusercontent.com/chase-manning/pokemon-tcg-pocket-cards/refs/heads/main/expansions.json -o /tmp/exp.json
+          python3 << 'EOF'
+          import json, collections
+          cards = json.load(open('/tmp/v4.json'))
+          print('カード数:', len(cards))
+          print('サンプルカードのキー:', sorted(cards[0].keys()))
+          print('サンプル1件:', json.dumps(cards[0], ensure_ascii=False)[:600])
+          # 進化元・特性・効果テキストの有無
+          n_evolve = sum(1 for c in cards if c.get('evolvesFrom') or c.get('evolves_from') or c.get('prew_stage_name'))
+          n_ability = sum(1 for c in cards if c.get('ability') or c.get('abilities'))
+          n_atk_effect = sum(1 for c in cards for a in (c.get('attacks') or []) if isinstance(a, dict) and (a.get('effect') or a.get('text') or a.get('description')))
+          print('進化元あり:', n_evolve, '/ 特性あり:', n_ability, '/ ワザ効果テキストあり:', n_atk_effect)
+          # 最新パック
+          packs = collections.Counter()
+          for c in cards:
+            for p in (c.get('pack') if isinstance(c.get('pack'), list) else [c.get('pack')]):
+              packs[str(p)] += 1
+          print('パック一覧:', dict(packs))
+          # 画像ドメイン
+          img = cards[0].get('image') or cards[0].get('imageUrl') or ''
+          print('画像URL例:', img)
+          try:
+            exp = json.load(open('/tmp/exp.json'))
+            print('拡張一覧:', json.dumps(exp, ensure_ascii=False)[:800])
+          except Exception as e:
+            print('expansions.json:', e)
+          EOF
+
+      - name: hugoburguete/pokemon-tcg-pocket-card-database
+        run: |
+          curl -s "https://api.github.com/repos/hugoburguete/pokemon-tcg-pocket-card-database/git/trees/main?recursive=1" -o /tmp/tree.json
+          python3 << 'EOF'
+          import json
+          t = json.load(open('/tmp/tree.json'))
+          paths = [x['path'] for x in t.get('tree', []) if x['path'].endswith('.json')]
+          print('JSONファイル数:', len(paths))
+          for p in paths[:40]: print(' ', p)
+          EOF
+          echo "=== サンプル1セット取得 ==="
+          FIRST=$(python3 -c "
+          import json
+          t = json.load(open('/tmp/tree.json'))
+          paths = [x['path'] for x in t.get('tree', []) if x['path'].endswith('.json') and '/cards/' in x['path'] or x['path'].startswith('cards/')]
+          print(paths[-1] if paths else '')")
+          echo "path: $FIRST"
+          if [ -n "$FIRST" ]; then
+            curl -s "https://raw.githubusercontent.com/hugoburguete/pokemon-tcg-pocket-card-database/main/$FIRST" | head -c 900; echo
+          fi
+
+      - name: flibustier/pokemon-tcg-pocket-database
+        run: |
+          curl -s https://cdn.jsdelivr.net/npm/pokemon-tcg-pocket-database/dist/cards.extra.json -o /tmp/fli.json || true
+          python3 << 'EOF'
+          import json, collections
+          try:
+            cards = json.load(open('/tmp/fli.json'))
+            print('カード数:', len(cards))
+            print('サンプルキー:', sorted(cards[0].keys()))
+            sets = collections.Counter(c.get('set') for c in cards)
+            print('セット一覧:', dict(sets))
+          except Exception as e:
+            print('取得失敗:', e)
+          EOF
