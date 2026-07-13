@@ -4,7 +4,7 @@ name: カードデータ更新
 on:
   workflow_dispatch: {} # 手動実行 (Actionsタブの Run workflow ボタン)
   schedule:
-    - cron: "0 21 * * 4" # 毎週金曜 6:00 JST頃 (新パック反映用)
+    - cron: "0 21 * * *" # 毎日 6:00 JST頃 (新パックがデータ元に載り次第、自動反映)
 
 permissions:
   contents: write
