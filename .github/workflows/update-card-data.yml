@@ -15,8 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: カードデータ取得
-        run: python3 download_cards.py --meta-only
+      - name: カードデータ取得 (2ソース合成)
+        run: python3 build_carddata.py
 
       - name: 変更があればコミット
         run: |

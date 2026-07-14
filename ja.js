@@ -119,6 +119,39 @@ const CARD_JA = {
   "Nemona": "ネモ",
   "Arven": "ペパー",
 
+  // --- B2b〜B3b (合成データ移行で追加 / 一部暫定訳) ---
+  "Castform Sunny Form": "ポワルン(たいようのすがた)",
+  "Castform Rainy Form": "ポワルン(あまみずのすがた)",
+  "Castform Snowy Form": "ポワルン(ゆきぐものすがた)",
+  "Rapid Strike Urshifu": "れんげきウーラオス",
+  "Single Strike Urshifu": "いちげきウーラオス",
+  "Nasty Notice": "いやなお知らせ",
+  "Maintenance": "メンテナンス",
+  "Iris": "アイリス",
+  "Calem": "カルム",
+  "Hiking Trail": "ハイキングコース",
+  "Field Blower": "フィールドブロアー",
+  "Lucky Egg": "しあわせタマゴ",
+  "Korrina": "コルニ",
+  "Cabbie": "タクシー運転手",
+  "Cheren": "チェレン",
+  "Parasol Lady": "パラソルおねえさん",
+  "Fragrant Forest": "かおりの森",
+  "Arena of Antiquity": "いにしえの闘技場",
+  "Bounded Field": "結界フィールド",
+  "Ancient Booster Energy Capsule": "ブーストエナジー古代",
+  "Future Booster Energy Capsule": "ブーストエナジー未来",
+  "Juliana": "アオイ",
+  "Professor Sada": "オーリム博士",
+  "Professor Turo": "フトゥー博士",
+  "Area Zero": "エリアゼロ",
+  "Small Balloon": "ちいさなふうせん",
+  "Elegant Cape": "エレガントマント",
+  "Elesa": "カミツレ",
+  "Puppy-Loving Girl": "子犬好きな女の子",
+  "Wallace": "ミクリ",
+  "Kid's Room": "こどもべや",
+
   // --- 初期から対訳済みのもの ---
   "Professor's Research": "博士の研究",
   "Poké Ball": "モンスターボール",
@@ -171,15 +204,16 @@ const RARITY_JA = {
   "One Shiny": "✦", "Two Shiny": "✦✦", "Crown": "♛",
 };
 
-// パック名 (A3b以降は公式日本語名が未確認のため暫定訳)
+// パック名 (A3b以降は公式日本語名が未確認のものは暫定訳)
 const SET_JA = {
   "A1": "最強の遺伝子", "A1a": "幻のいる島",
   "A2": "時空の激闘", "A2a": "超克の光", "A2b": "シャイニングハイ",
   "A3": "双天の守護者", "A3a": "異次元クライシス", "A3b": "イーブイのもり",
-  "A4": "海と空の叡智", "A4a": "ひめられた泉",
+  "A4": "海と空の叡智", "A4a": "ひめられた泉", "A4b": "デラックスパックex",
   "B1": "メガライジング", "B1a": "クリムゾンブレイズ",
-  "B2": "幻想パレード", "B2a": "パルデアワンダー",
-  "P-A": "プロモカード",
+  "B2": "幻想パレード", "B2a": "パルデアワンダー", "B2b": "メガシャイン",
+  "B3": "波動ビート", "B3a": "進撃パラドックス", "B3b": "ミラクルデイズ",
+  "P-A": "プロモカード", "P-B": "プロモカードB",
 };
 
 const NAME_PREFIX_JA = [

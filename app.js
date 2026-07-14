@@ -101,15 +101,18 @@ function normalize(s) {
     .replace(/[ぁ-ん]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
 }
 
+// 画像URL: 直リンク形式(.png等)ならそのまま、TCGdex形式なら解像度サフィックスを付ける
+const isDirectImage = (url) => /\.(png|webp|jpe?g)$/i.test(url || "");
+
 function thumbUrl(card) {
-  if (state.localData) return `data/img/${card.id}.webp`;
-  return card.image ? `${card.image}/low.webp` : null;
+  if (state.localData) return `data/img/${card.id}.png`;
+  if (!card.image) return null;
+  return isDirectImage(card.image) ? card.image : `${card.image}/low.webp`;
 }
 function largeUrl(card) {
-  if (state.localData) {
-    return state.localData.high ? `data/img_hi/${card.id}.webp` : `data/img/${card.id}.webp`;
-  }
-  return card.image ? `${card.image}/high.webp` : null;
+  if (state.localData) return `data/img/${card.id}.png`;
+  if (!card.image) return null;
+  return isDirectImage(card.image) ? card.image : `${card.image}/high.webp`;
 }
 
 async function fetchJson(url) {

@@ -59,8 +59,15 @@ python3 -m http.server 8000
 
 ## カードデータについて
 
-カード情報とサムネイル画像は [TCGdex API](https://tcgdex.dev/) の Pokémon TCG Pocket シリーズ（`tcgp`）から
-**ブラウザ上で直接** 取得しています（APIキー不要・無料）。
+カードデータは2つのオープンソースデータベース（いずれもMIT）を **GitHub Actionsで毎日合成** して
+`carddata.json` としてアプリに同梱しています（`build_carddata.py`）:
+
+- [hugoburguete/pokemon-tcg-pocket-card-database](https://github.com/hugoburguete/pokemon-tcg-pocket-card-database) — ワザ・特性・進化元・弱点などの詳細
+- [chase-manning/pokemon-tcg-pocket-cards](https://github.com/chase-manning/pokemon-tcg-pocket-cards) — カード画像と最新弾の補完
+
+最新弾は詳細データが揃う前でも「カード名・画像・タイプ」で先行収録され、詳細はデータ元の
+更新に合わせて自動で埋まります。同梱データが読めない環境では
+[TCGdex API](https://tcgdex.dev/) へのフォールバックも残しています。
 
 - 日本語データを優先し、取得できない場合は英語にフォールバック
 - 取得結果は24時間ブラウザにキャッシュ（🔄ボタンで強制再取得）
