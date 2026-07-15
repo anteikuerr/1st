@@ -334,6 +334,57 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           while (rng() < 0.5) water.energy.push("Water");
           me.hand.splice(i, 1);
         }
+      } else if (t === "Sabrina" || t === "ナツメ") {
+        // 相手のバトルポケモンをベンチへ (新しいバトルポケモンは相手が選ぶ)
+        // 育ったアタッカーを一時的にベンチへ下げさせるテンポ妨害
+        if (op.active && op.active.energy.length >= 2 && op.bench.length) {
+          op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
+          const incoming = op.bench.shift();
+          const outgoing = op.active;
+          outgoing.poison = outgoing.burn = outgoing.sleep = outgoing.para = outgoing.confuse = false;
+          op.active = incoming;
+          op.bench.push(outgoing);
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Giovanni" || t === "サカキ") {
+        // この番のダメージ+10 (きぜつ圏に入るときだけ使う)
+        if (me.active && op.active) {
+          const atk = bestUsable(me.active);
+          const gap = op.active.hp - op.active.damage;
+          if (atk && atk.ev < gap && atk.ev + 10 >= gap) {
+            me.plusDmg = (me.plusDmg || 0) + 10;
+            me.hand.splice(i, 1);
+          }
+        }
+      } else if (t === "Red Card" || t === "レッドカード") {
+        // 相手の手札を山札に戻して3枚引かせる (手札が多いときに使う)
+        if (op.hand.length > 4) {
+          op.deck.push(...op.hand.splice(0));
+          op.deck = shuffle(op.deck);
+          op.hand.push(...op.deck.splice(0, 3));
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Giant Cape" || t === "おおきなマント") {
+        // HP+20のどうぐ (1体1枚)
+        const target = board(me).find((m) => !m.cape);
+        if (target) {
+          target.cape = true;
+          target.hp += 20;
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "X Speed" || t === "スピーダー" || t === "Leaf" || t === "リーフ") {
+        // にげる補助: ベンチに明確に強いアタッカーがいるとき無償で入れ替え
+        if (me.active && me.bench.length) {
+          const bestIdx = me.bench.reduce((bi, m, idx, arr) =>
+            attackerValue(m) > attackerValue(arr[bi]) ? idx : bi, 0);
+          if (attackerValue(me.bench[bestIdx]) > attackerValue(me.active) + 15) {
+            const tmp = me.active;
+            tmp.poison = tmp.burn = tmp.sleep = tmp.para = tmp.confuse = false;
+            me.active = me.bench[bestIdx];
+            me.bench[bestIdx] = tmp;
+            me.hand.splice(i, 1);
+          }
+        }
       } else {
         me.hand.splice(i, 1);
       }
@@ -455,7 +506,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           return null;
         };
 
-        let dmg = attack.dmg;
+        let dmg = attack.dmg + (me.plusDmg || 0); // サカキ等の打点補正
         if (fx.multiFlip) {
           let heads = 0;
           for (let i = 0; i < fx.multiFlip.n; i++) if (rng() < 0.5) heads++;
@@ -560,6 +611,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       me.active.para = false; // マヒは自分の番が終わると回復
     }
     if (me.active) me.active.lockAttack = false; // ワザロックは1ターンで解除
+    me.plusDmg = 0; // 打点補正はこの番のみ
 
     // ポケモンチェック (どく / やけど / ねむり判定)
     for (const [pl, opp] of [[A, B], [B, A]]) {

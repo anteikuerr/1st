@@ -32,6 +32,8 @@ const SUGGEST_WEIGHTS = {
   costP: 35,   // 最大打点ワザのエネルギーコスト1個あたりのペナルティ
   abB: 0,      // 特性持ちボーナス (一律加点は逆効果なので0)
   linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
+  megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
+  trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
   thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
 };
 
@@ -67,6 +69,7 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     }
     return dmgScore(dmg) - cost * weights.costP + (d.h || 0) * weights.hpW +
       (/ex$/.test(card.name) ? weights.exB : 0) +
+      (/^メガ|^Mega /.test(card.name) && /ex$/.test(card.name) ? -(weights.megaP || 0) : 0) +
       ((d.ab || []).length ? (weights.abB || 0) : 0);
   };
   const byName = new Map();
@@ -199,6 +202,13 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   }
 
   // --- 相方ポケモン ---
+  // エネ加速シナジー: コアがベンチへのエネ加速(ワザ/特性)を持つなら、
+  // 重いワザの相方も回るのでコストペナルティを緩和する
+  const hasAccel = coreLines.flat().some((m) =>
+    (m.d.a || []).some((a) => /Energy Zone and attach (?:it|them) to (?:1 of your Benched|your Benched)/i.test(a.e || "")) ||
+    (m.d.ab || []).some((ab) => /Energy Zone and attach/i.test(ab.e || "")));
+  const effCostP = hasAccel ? weights.costP * 0.5 : weights.costP;
+
   // そのエネルギーで使えるワザだけを評価対象にする
   const usableScore = (e, es) => {
     let dmg = 0;
@@ -209,8 +219,9 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
     if (!dmg) return -1;
-    return dmgScore(dmg) - cost * weights.costP + (e.d.h || 0) * weights.hpW +
+    return dmgScore(dmg) - cost * effCostP + (e.d.h || 0) * weights.hpW +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
+      (/^メガ|^Mega /.test(e.card.name) && /ex$/.test(e.card.name) ? -(weights.megaP || 0) : 0) +
       ((e.d.ab || []).length ? (weights.abB || 0) : 0);
   };
 
