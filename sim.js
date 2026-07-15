@@ -196,7 +196,7 @@ function buildSimDeck({ deck, energies, cardById, details }) {
   return { cards, energies: energies.length ? energies : ["Colorless"] };
 }
 
-function simulateGame(simDeckA, simDeckB, rng) {
+function simulateGame(simDeckA, simDeckB, rng, stats) {
   const shuffle = (arr) => {
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
@@ -425,6 +425,10 @@ function simulateGame(simDeckA, simDeckB, rng) {
     if (attackAllowed) {
       const attack = bestUsable(me.active);
       if (attack && op.active) {
+        if (stats && me === A && !A.firstAtkTurn) {
+          A.firstAtkTurn = me.turn;
+          stats.firstAtk.push(me.turn);
+        }
         const fx = attack.fx || {};
         const boost = () => {
           // 特性の打点強化 (自分の場全体から集計)
@@ -574,12 +578,12 @@ function simulateGame(simDeckA, simDeckB, rng) {
   return 0.5;
 }
 
-function simulateMatch(simDeckA, simDeckB, games, seed = 42) {
+function simulateMatch(simDeckA, simDeckB, games, seed = 42, stats = null) {
   const rng = mulberry32(seed);
   let winA = 0;
   for (let i = 0; i < games; i++) {
-    if (i % 2 === 0) winA += simulateGame(simDeckA, simDeckB, rng);
-    else winA += 1 - simulateGame(simDeckB, simDeckA, rng);
+    if (i % 2 === 0) winA += simulateGame(simDeckA, simDeckB, rng, stats);
+    else winA += 1 - simulateGame(simDeckB, simDeckA, rng, stats && null);
   }
   return winA / games;
 }

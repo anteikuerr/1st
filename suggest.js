@@ -21,20 +21,32 @@ const SUGGEST_STAPLES = [
   { names: ["Leaf", "リーフ"], count: 2 },
 ];
 
-// スコアリングの重み。簡易対戦シミュレータのグリッドサーチ (sim.js / 数万試合) で調整:
-// コスト効率(costP)が勝率に最も効き、コスト無視の重みは全設定で最下位圏だった
+// スコアリングの重み。対戦シミュレーション実験で調整 (docs/deck-theory.md 参照):
+// - 打点は「確定数」ベースで採点: メタのHP帯(50/80/120/150/190)を跨ぐ打点だけが価値を持つ
+//   (素点130より「140のexを一撃で取れるか」が勝率に直結: 45.0%→49.7%)
+// - コスト効率(costP)は引き続き最重要 / ex回避は明確に損 / 特性の一律加点は逆効果
 const SUGGEST_WEIGHTS = {
-  hpW: 0.3,    // HPの重み
+  hpW: 0.45,   // HPの重み
   exB: 30,     // exボーナス
   stageP: 10,  // 進化段数ごとのペナルティ (立ち上がりの遅さ)
   costP: 35,   // 最大打点ワザのエネルギーコスト1個あたりのペナルティ
-  abB: 0,      // 特性持ちボーナス (シミュ検証の結果、一律加点は逆効果なので0)
+  abB: 0,      // 特性持ちボーナス (一律加点は逆効果なので0)
+  linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
+  thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
 };
 
 function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS }) {
   const SIZE = 20;
   const MAX_PER = 2;
-  const TRAINER_SLOTS = 8; // トレーナーズ用に残す枠の目安
+  const TRAINER_SLOTS = weights.trainerSlots ?? 8; // トレーナーズ用に残す枠の目安
+
+  // 打点の採点: thresholds指定時は「確定数」ベース (メタのHP帯を超えた打点だけ加点)
+  const dmgScore = (dmg) => {
+    if (!weights.thresholds) return dmg;
+    let s = dmg * (weights.linearW || 0); // 同しきい値内の序列づけ用の線形項
+    for (const [thr, w] of weights.thresholds) if (dmg >= thr) s += w;
+    return s;
+  };
 
   const isPokemon = (d) => !!d && (d.c === "Pokemon" || d.c === "ポケモン");
   const isTrainer = (d) => !!d && !isPokemon(d);
@@ -53,7 +65,7 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       const v = parseDmg(a.d);
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
-    return dmg - cost * weights.costP + (d.h || 0) * weights.hpW +
+    return dmgScore(dmg) - cost * weights.costP + (d.h || 0) * weights.hpW +
       (/ex$/.test(card.name) ? weights.exB : 0) +
       ((d.ab || []).length ? (weights.abB || 0) : 0);
   };
@@ -197,7 +209,7 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
     if (!dmg) return -1;
-    return dmg - cost * weights.costP + (e.d.h || 0) * weights.hpW +
+    return dmgScore(dmg) - cost * weights.costP + (e.d.h || 0) * weights.hpW +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
       ((e.d.ab || []).length ? (weights.abB || 0) : 0);
   };
@@ -223,6 +235,23 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     if (!energies.length) energies = cand.es;
     if (usableScore(cand.line[cand.line.length - 1], energies) < 0) continue;
     for (const m of cand.line) add(m.card.id, 2);
+  }
+
+  // --- 先鋒(オープナー)の保証 ---
+  // テンポ理論: エネルギー1個で殴り出せるたねが1種もいないと序盤を無償で殴られる
+  if (weights.opener) {
+    const isOpener = (d) =>
+      isPokemon(d) && isBasic(d) &&
+      (d.a || []).some((a) =>
+        (a.c || []).length <= 1 && parseDmg(a.d) >= 20 &&
+        (a.c || []).filter(nonColorless).every((t) => energies.includes(t)));
+    const hasOpener = Object.keys(newDeck).some((id) => isOpener(details.get(id)));
+    if (!hasOpener) {
+      const openers = [...byName.values()]
+        .filter((e) => isOpener(e.d) && !hasName(e.card.name))
+        .sort((a, b) => usableScore(b, energies) - usableScore(a, energies));
+      if (openers.length) add(openers[0].card.id, 2);
+    }
   }
 
   // --- トレーナーズ ---
