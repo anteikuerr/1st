@@ -217,7 +217,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       deck = shuffle(simDeck.cards);
       hand = deck.splice(0, 5);
     } while (!hand.some((c) => c.basic));
-    return { deck, hand, energies: simDeck.energies, active: null, bench: [], points: 0, turn: 0, candy: 0 };
+    return { deck, hand, energies: simDeck.energies, active: null, bench: [], points: 0, turn: 0, candy: 0, etrash: [] };
   };
 
   const inst = (c, turn) => ({
@@ -377,6 +377,61 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           target.hp += 20;
           me.hand.splice(i, 1);
         }
+      } else if (t === "Volkner" || t === "デンジ") {
+        // トラッシュの雷エネ2個をエレキブル/レントラーへ
+        const tgt = board(me).find((m) =>
+          ["Electivire", "エレキブル", "Luxray", "レントラー"].includes(m.name));
+        if (tgt && me.etrash.includes("Lightning")) {
+          for (let k = 0; k < 2; k++) {
+            const j = me.etrash.indexOf("Lightning");
+            if (j < 0) break;
+            me.etrash.splice(j, 1);
+            tgt.energy.push("Lightning");
+          }
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Kiawe" || t === "カキ") {
+        // アローラガラガラ/バクガメスに炎エネ2個 (この番はワザが使えない)
+        const tgt = board(me).find((m) =>
+          ["Alolan Marowak", "アローラガラガラ", "Turtonator", "バクガメス"].includes(m.name));
+        if (tgt && !bestUsable(tgt) && me.turn <= 3) {
+          tgt.energy.push("Fire", "Fire");
+          me.noAttack = true;
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Fantina" || t === "メリッサ") {
+        // フワライド/ムウマージそれぞれに超エネ1個
+        const tgts = board(me).filter((m) =>
+          ["Drifblim", "フワライド", "Mismagius", "ムウマージ"].includes(m.name));
+        if (tgts.length) {
+          for (const tgt of tgts) tgt.energy.push("Psychic");
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Brock" || t === "タケシ") {
+        // ゴローニャ/イワークに闘エネ1個
+        const tgt = board(me).find((m) =>
+          ["Golem", "ゴローニャ", "Onix", "イワーク"].includes(m.name));
+        if (tgt) {
+          tgt.energy.push("Fighting");
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Electric Generator" || t === "エレキジェネレーター") {
+        // コインオモテならベンチの雷ポケモンに雷エネ1個
+        const tgt = me.bench
+          .filter((m) => (m.types || []).includes("Lightning"))
+          .sort((x, y) => attackerValue(y) - attackerValue(x))[0];
+        if (tgt) {
+          if (rng() < 0.5) tgt.energy.push("Lightning");
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Flame Patch" || t === "ほのおのパッチ") {
+        // トラッシュの炎エネ1個をバトル場の炎ポケモンへ
+        const j = me.etrash.indexOf("Fire");
+        if (j >= 0 && me.active && (me.active.types || []).includes("Fire")) {
+          me.etrash.splice(j, 1);
+          me.active.energy.push("Fire");
+          me.hand.splice(i, 1);
+        }
       } else if (t === "X Speed" || t === "スピーダー" || t === "Leaf" || t === "リーフ") {
         // にげる補助: ベンチに明確に強いアタッカーがいるとき無償で入れ替え
         if (me.active && me.bench.length) {
@@ -470,7 +525,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       const readyIdx = me.bench.findIndex((m) => bestUsable(m));
       if (readyIdx >= 0 && attackerValue(me.bench[readyIdx]) > attackerValue(me.active)) {
         const tmp = me.active;
-        tmp.energy.splice(0, tmp.rc); // にげるコスト分をトラッシュ
+        me.etrash.push(...tmp.energy.splice(0, tmp.rc)); // にげるコスト分をトラッシュ
         tmp.poison = tmp.burn = tmp.sleep = tmp.para = tmp.confuse = false;
         me.active = me.bench[readyIdx];
         me.bench[readyIdx] = tmp;
@@ -478,7 +533,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     }
 
     // 攻撃 (ねむり/マヒ/ワザロック中は不可)
-    let attackAllowed = me.active && !me.active.sleep && !me.active.para && !me.active.lockAttack;
+    let attackAllowed = me.active && !me.active.sleep && !me.active.para && !me.active.lockAttack && !me.noAttack;
     // こんらん: コインでウラならワザ失敗
     if (attackAllowed && me.active.confuse && rng() < 0.5) attackAllowed = false;
 
@@ -595,7 +650,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           }
         }
         if (fx.discardSelf) {
-          me.active.energy.splice(0, fx.discardSelf === 99 ? me.active.energy.length : fx.discardSelf);
+          me.etrash.push(...me.active.energy.splice(0, fx.discardSelf === 99 ? me.active.energy.length : fx.discardSelf));
         }
         if (fx.shield) {
           me.active.shieldUntil = turnNo + 1;
@@ -606,7 +661,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (op.active) {
           if (fx.oppDiscard && (!fx.oppDiscardFlip || rng() < 0.5)) {
             for (let k = 0; k < fx.oppDiscard && op.active.energy.length; k++) {
-              op.active.energy.splice(Math.floor(rng() * op.active.energy.length), 1);
+              op.etrash.push(...op.active.energy.splice(Math.floor(rng() * op.active.energy.length), 1));
             }
           }
           if (fx.poison) op.active.poison = true;
@@ -627,6 +682,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     }
     if (me.active) me.active.lockAttack = false; // ワザロックは1ターンで解除
     me.plusDmg = 0; // 打点補正はこの番のみ
+    me.noAttack = false; // カキ等の「この番は終わる」も解除
 
     // ポケモンチェック (どく / やけど / ねむり判定)
     for (const [pl, opp] of [[A, B], [B, A]]) {

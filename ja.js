@@ -854,6 +854,133 @@ Object.assign(EFFECT_SENTENCE_JA, {
   "your opponent's Active Pokémon's remaining HP is now 10.": "相手のバトルポケモンの残りHPを10にする。"
 });
 
+// トレーナーカードの効果文 (カード全文キー)
+Object.assign(EFFECT_SENTENCE_JA, {
+  "Play this card as if it were a 40-HP Basic {C} Pokémon. At any time during your turn, you may discard this card from play. This card can't retreat.":
+    "このカードはHP40の無色のたねポケモンとして場に出せる。自分の番の中でいつでも、このカードを場からトラッシュしてよい。このカードはにげられない。",
+  "Heal 50 damage from 1 of your {G} Pokémon.": "自分の草ポケモン1匹のHPを50回復。",
+  "Choose 1 of your {W} Pokémon, and flip a coin until you get tails. For each heads, take a {W} Energy from your Energy Zone and attach it to that Pokémon.":
+    "自分の水ポケモン1匹を選ぶ。ウラが出るまでコインを投げ、オモテの数ぶん、エネルギーゾーンから水エネルギーを出してそのポケモンにつける。",
+  "During this turn, attacks used by your Ninetales, Rapidash, or Magmar do +30 damage to your opponent's Active Pokémon.":
+    "この番、自分のキュウコン・ギャロップ・ブーバーが使うワザの、相手のバトルポケモンへのダメージを+30。",
+  "Put your Muk or Weezing in the Active Spot into your hand.": "バトル場の自分のベトベトンかマタドガスを手札にもどす。",
+  "During this turn, attacks used by your Pokémon do +10 damage to your opponent's Active Pokémon.":
+    "この番、自分のポケモンが使うワザの、相手のバトルポケモンへのダメージを+10。",
+  "Take 1 {F} Energy from your Energy Zone and attach it to your Golem or Onix.":
+    "エネルギーゾーンから闘エネルギーを1個出し、自分のゴローニャかイワークにつける。",
+  "Switch out your opponent's Active Pokémon to the Bench. (Your opponent chooses the new Active Pokémon.)":
+    "相手のバトルポケモンをベンチと入れ替える。（新しいバトルポケモンは相手が選ぶ。）",
+  "Move all {L} Energy from your Benched Pokémon to your Raichu, Electrode, or Electabuzz in the Active Spot.":
+    "自分のベンチポケモンについている雷エネルギーをすべて、バトル場のライチュウ・マルマイン・エレブーにつけ替える。",
+  "Put a Basic Pokémon from your opponent's discard pile onto their Bench.": "相手のトラッシュのたねポケモン1匹を、相手のベンチに出す。",
+  "Look at the top card of your deck. If that card is a {P} Pokémon, put it into your hand. If it is not a {P} Pokémon, put it on the bottom of your deck.":
+    "自分の山札を上から1枚見る。それが超ポケモンなら手札に加える。超ポケモンでなければ山札の下にもどす。",
+  "Put your Mew ex in the Active Spot into your hand.": "バトル場の自分のミュウexを手札にもどす。",
+  "During your opponent's next turn, all of your Pokémon take −10 damage from attacks from your opponent's Pokémon.":
+    "相手の次の番、自分のポケモン全員が相手のポケモンから受けるワザのダメージを−10。",
+  "During this turn, the Retreat Cost of your Active Pokémon is 2 less.": "この番、自分のバトルポケモンのにげるコストを2個ぶん少なくする。",
+  "During this turn, the Retreat Cost of your Active Pokémon is 1 less.": "この番、自分のバトルポケモンのにげるコストを1個ぶん少なくする。",
+  "Choose a Pokémon in your hand and switch it with a random Pokémon in your deck.":
+    "自分の手札のポケモン1枚を選び、山札のランダムなポケモン1枚と入れ替える。",
+  "The Pokémon this card is attached to gets +20 HP.": "このカードをつけたポケモンの最大HPを+20。",
+  "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon, do 20 damage to the Attacking Pokémon.":
+    "このカードをつけたポケモンがバトル場で相手のポケモンからワザのダメージを受けたとき、ワザを使ったポケモンに20ダメージ。",
+  "At the end of each turn, if the Pokémon this card is attached to is affected by any Special Conditions, it recovers from all of them, and discard this card.":
+    "番の終わりに、このカードをつけたポケモンが特殊状態なら、すべて回復し、このカードをトラッシュする。",
+  "Switch in 1 of your opponent's Benched Pokémon that has damage on it to the Active Spot.":
+    "ダメージがのっている相手のベンチポケモン1匹を、バトル場に出す。",
+  "During this turn, attacks used by your Garchomp or Togekiss do +50 damage to your opponent's Active Pokémon.":
+    "この番、自分のガブリアスかトゲキッスが使うワザの、相手のバトルポケモンへのダメージを+50。",
+  "Choose 1 of your Electivire or Luxray. Attach 2 {L} Energy from your discard pile to that Pokémon.":
+    "自分のエレキブルかレントラー1匹を選ぶ。自分のトラッシュから雷エネルギーを2個、そのポケモンにつける。",
+  "Move an Energy from 1 of your Benched Pokémon to your Active Pokémon.":
+    "自分のベンチポケモン1匹についているエネルギーを1個、バトルポケモンにつけ替える。",
+  "Your opponent shuffles their hand into their deck and draws a card for each of their remaining points needed to win.":
+    "相手は手札を山札にもどしてシャッフルし、勝利に必要な残りポイントの数ぶんカードを引く。",
+  "Each player shuffles the cards in their hand into their deck, then draws that many cards.":
+    "お互いのプレイヤーは、それぞれ手札を山札にもどしてシャッフルし、もどした枚数ぶんカードを引く。",
+  "Flip a coin until you get tails. For each heads, discard a random Energy from your opponent's Active Pokémon.":
+    "ウラが出るまでコインを投げ、オモテの数ぶん、相手のバトルポケモンからランダムにエネルギーをトラッシュ。",
+  "Put a random Basic Pokémon from your deck into your hand.": "自分の山札からランダムなたねポケモンを1枚、手札に加える。",
+  "Heal 10 damage and remove a random Special Condition from your Active Pokémon.":
+    "自分のバトルポケモンのHPを10回復し、特殊状態をランダムに1つ回復する。",
+  "Put a random Basic {W} Pokémon from your discard pile into your hand.":
+    "自分のトラッシュからランダムな水のたねポケモンを1枚、手札に加える。",
+  "Choose 1 of your Basic Pokémon in play. If you have a Stage 2 card in your hand that evolves from that Pokémon, put that card onto the Basic Pokémon to evolve it, skipping the Stage 1. You can't use this card during your first turn or on a Basic Pokémon that was put into play this turn.":
+    "場の自分のたねポケモン1匹を選ぶ。そのポケモンから進化する2進化カードが手札にあるなら、1進化を飛ばして進化させる。このカードは最初の自分の番と、この番に場に出たたねポケモンには使えない。",
+  "Look at the top card of your deck. Then, you may shuffle your deck.": "自分の山札を上から1枚見る。その後、山札をシャッフルしてよい。",
+  "If the Pokémon this card is attached to is your Active Pokémon and is damaged by an attack from your opponent's Pokémon, the Attacking Pokémon is now Poisoned.":
+    "このカードをつけたポケモンがバトル場で相手のポケモンからワザのダメージを受けたとき、ワザを使ったポケモンをどく状態にする。",
+  "The {G} Pokémon this card is attached to gets +30 HP.": "このカードをつけた草ポケモンの最大HPを+30。",
+  "Choose 1 of your Palossand or Mimikyu that has damage on it, and move 40 of its damage to your opponent's Active Pokémon.":
+    "ダメージがのっている自分のシロデスナかミミッキュ1匹を選び、そのダメージを40ぶん、相手のバトルポケモンに移す。",
+  "Choose 1 of your Alolan Marowak or Turtonator. Take 2 {R} Energy from your Energy Zone and attach it to that Pokémon. Your turn ends.":
+    "自分のアローラガラガラかバクガメス1匹を選ぶ。エネルギーゾーンから炎エネルギーを2個出し、そのポケモンにつける。この番は終わる。",
+  "Discard all Pokémon Tool cards attached to each of your opponent's Pokémon.":
+    "相手のポケモン全員についているポケモンのどうぐを、すべてトラッシュ。",
+  "Heal 60 damage from 1 of your Stage 2 Pokémon.": "自分の2進化ポケモン1匹のHPを60回復。",
+  "Move a {R}, {W}, or {L} Energy from 1 of your Benched Pokémon to your Active Pokémon.":
+    "自分のベンチポケモン1匹についている炎・水・雷エネルギーを1個、バトルポケモンにつけ替える。",
+  "Attach a {R} Energy from your discard pile to your Active {R} Pokémon.":
+    "自分のトラッシュから炎エネルギーを1個、バトル場の炎ポケモンにつける。",
+  "Flip a coin. If heads, take a {L} Energy from your Energy Zone and attach it to 1 of your Benched {L} Pokémon.":
+    "コインを1回投げオモテなら、エネルギーゾーンから雷エネルギーを1個出し、ベンチの雷ポケモン1匹につける。",
+  "Heal 20 damage from 1 of your Pokémon.": "自分のポケモン1匹のHPを20回復。",
+  "Your opponent shuffles their hand into their deck and draws 3 cards.": "相手は手札を山札にもどしてシャッフルし、3枚引く。",
+  "Draw 2 cards.": "自分の山札を2枚引く。",
+  "Put 1 random Glameow, Stunky, or Croagunk from your deck into your hand.": "自分の山札からランダムなニャルマー・スカンプー・グレッグルを1枚、手札に加える。",
+  "Heal 40 damage from each of your Pokémon that has any {W} Energy attached.": "水エネルギーがついている自分のポケモン全員のHPを、それぞれ40回復。",
+  "Put 1 random Basic Pokémon from your discard pile into your hand.": "自分のトラッシュからランダムなたねポケモンを1枚、手札に加える。",
+  "During this turn, attacks used by your Snorlax, Heracross, and Staraptor cost 2 less {C} Energy.": "この番、自分のカビゴン・ヘラクロス・ムクホークが使うワザの無色エネルギーを2個少なくする。",
+  "During your opponent's next turn, all of your {M} Pokémon take −20 damage from attacks from your opponent's Pokémon.": "相手の次の番、自分の鋼ポケモン全員が相手のポケモンから受けるワザのダメージを−20。",
+  "Heal 30 damage from 1 of your Pokémon, and it recovers from all Special Conditions.": "自分のポケモン1匹のHPを30回復し、特殊状態をすべて回復する。",
+  "During this turn, attacks used by your Pokémon do +20 damage to your opponent's Active Pokémon ex.": "この番、自分のポケモンが使うワザの、相手のバトルポケモンexへのダメージを+20。",
+  "Put 1 of your {C} Pokémon that has damage on it into your hand.": "ダメージがのっている自分の無色ポケモン1匹を手札にもどす。",
+  "You can use this card only if you have Araquanid in play. Switch in 1 of your opponent's Benched Pokémon to the Active Spot.": "自分の場にオニシズクモがいるときにしか使えない。相手のベンチポケモン1匹をバトル場に出す。",
+  "During this turn, attacks used by your Alolan Golem, Vikavolt, or Togedemaru do +30 damage to your opponent's Active Pokémon.": "この番、自分のアローラゴローニャ・クワガノン・トゲデマルが使うワザの、相手のバトルポケモンへのダメージを+30。",
+  "If the {L} Pokémon this card is attached to is in the Active Spot and is Knocked Out by damage from an attack from your opponent's Pokémon, move 2 {L} Energy from that Pokémon and attach 1 Energy each to 2 of your Benched Pokémon.": "このカードをつけた雷ポケモンがバトル場で相手のワザのダメージできぜつしたとき、そのポケモンから雷エネルギーを2個、自分のベンチポケモン2匹に1個ずつつけ替える。",
+  "Attacks used by the Ultra Beast this card is attached to do +10 damage to your opponent's Active Pokémon for each point you have gotten.": "このカードをつけたウルトラビーストが使うワザの、相手のバトルポケモンへのダメージを、自分の獲得済みポイント1つにつき+10。",
+  "Put 1 random Type: Null or Silvally from your deck into your hand.": "自分の山札からランダムなタイプ:ヌルかシルヴァディを1枚、手札に加える。",
+  "Your opponent reveals all of the Supporter cards in their deck.": "相手は山札のサポートカードをすべて公開する。",
+  "At the end of your turn, if the Pokémon this card is attached to is in the Active Spot, heal 10 damage from that Pokémon.": "自分の番の終わりに、このカードをつけたポケモンがバトル場にいるなら、そのポケモンのHPを10回復。",
+  "During this turn, attacks used by your Decidueye ex, Incineroar ex, or Primarina ex do +30 damage to your opponent's Active Pokémon.": "この番、自分のジュナイパーex・ガオガエンex・アシレーヌexが使うワザの、相手のバトルポケモンへのダメージを+30。",
+  "Look at a random Supporter card that's not Penny from your opponent's deck and shuffle it back into their deck. Use the effect of that card as the effect of this card.": "相手の山札から「ボタン」以外のランダムなサポートカード1枚を見て、山札にもどして切る。そのカードの効果をこのカードの効果として使う。",
+  "Discard a {R} Energy from your opponent's Active Pokémon.": "相手のバトルポケモンから炎エネルギーを1個トラッシュ。",
+  "The {M} Pokémon this card is attached to takes −10 damage from attacks from your opponent's Pokémon, recovers from all Special Conditions, and can't be affected by any Special Conditions.": "このカードをつけた鋼ポケモンは、相手のポケモンから受けるワザのダメージが−10され、特殊状態がすべて回復し、特殊状態にならない。",
+  "If the {D} Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon, your opponent reveals a random card from their hand and shuffles it into their deck.": "このカードをつけた悪ポケモンがバトル場で相手のポケモンからワザのダメージを受けたとき、相手は手札からランダムな1枚を公開して山札にもどして切る。",
+  "If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, put it into your hand instead of the discard pile.": "このカードをつけたポケモンが相手のワザのダメージできぜつしたとき、トラッシュではなく手札にもどす。",
+  "The next time you flip any number of coins for the effect of an attack, Ability, or Trainer card after using this card on this turn, the first coin flip will definitely be heads.": "このカードを使った番、次にワザ・特性・トレーナーカードの効果でコインを投げるとき、最初の1回は必ずオモテになる。",
+  "Switch your Active Pokémon that has damage on it with 1 of your Benched Pokémon.": "ダメージがのっている自分のバトルポケモンを、ベンチポケモン1匹と入れ替える。",
+  "During your opponent's next turn, all of your Steelix and Skarmory ex take −50 damage from attacks from your opponent's Pokémon.": "相手の次の番、自分のハガネールとエアームドex全員が相手のポケモンから受けるワザのダメージを−50。",
+  "For each of your {F} Pokémon in play, look at that many cards from the top of your deck and put them back in any order.": "場にいる自分の闘ポケモンの数ぶん、自分の山札を上から見て、好きな順番で山札の上にもどす。",
+  "The Retreat Cost of the {W} Pokémon this card is attached to is 1 less.": "このカードをつけた水ポケモンのにげるコストを1個少なくする。",
+  "The Pokémon this card is attached to can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)": "このカードをつけたポケモンは、進化前のワザも使える。（ワザに必要なエネルギーは必要。）",
+  "Heal 60 damage from 1 of your Miltank, and it recovers from being Asleep, Paralyzed, and Confused.": "自分のミルタンク1匹のHPを60回復し、ねむり・マヒ・こんらんを回復する。",
+  "Look at the top 4 cards of your deck. Put all Pokémon Tool cards you find there into your hand. Shuffle the other cards back into your deck.": "自分の山札を上から4枚見て、その中のポケモンのどうぐをすべて手札に加える。残りは山札にもどして切る。",
+  "For each of your {P} Pokémon in play, look at that many cards from the top of your opponent's deck and put them back in any order.": "場にいる自分の超ポケモンの数ぶん、相手の山札を上から見て、好きな順番で山札の上にもどす。",
+  "A card from among both player's hands is chosen at random, revealed to the other player, and shuffled into its owner's deck.": "お互いの手札から1枚がランダムに選ばれ、相手に公開して、持ち主の山札にもどして切る。",
+  "If the Pokémon this card is attached to has a Retreat Cost of 3 or more, it takes −20 damage from attacks from your opponent's Pokémon.": "このカードをつけたポケモンのにげるコストが3個以上なら、相手のポケモンから受けるワザのダメージを−20。",
+  "Whenever your opponent's Pokémon is Knocked Out by damage from an attack used by the Pokémon this card is attached to, draw a card.": "このカードをつけたポケモンのワザのダメージで相手のポケモンがきぜつするたび、自分の山札を1枚引く。",
+  "Heal 70 damage from 1 of your Carracosta or Jellicent.": "自分のアバゴーラかブルンゲル1匹のHPを70回復。",
+  "During your opponent's next turn, if your Hariyama or Crabominable would be Knocked Out by damage from an attack, it is not Knocked Out and its remaining HP becomes 10.": "相手の次の番、自分のハリテヤマかケケンカニがワザのダメージできぜつするとき、きぜつせず残りHPが10になる。",
+  "Put 2 random Pokémon from your deck into your hand. For each Pokémon you put into your hand in this way, choose a Pokémon to shuffle from your hand into your deck.": "自分の山札からランダムなポケモンを2枚、手札に加える。加えた枚数ぶん、手札からポケモンを選んで山札にもどして切る。",
+  "Take a {P} Energy from your Energy Zone and attach it to each of your Drifblim and Mismagius.": "エネルギーゾーンから超エネルギーを1個ずつ出し、自分のフワライドとムウマージそれぞれにつける。",
+  "Put 2 random Basic Pokémon with 50 HP or less from your deck into your hand.": "自分の山札からランダムなHP50以下のたねポケモンを2枚、手札に加える。",
+  "During this turn, attacks used by your Magneton or Heliolisk do +20 damage to your opponent's Pokémon.": "この番、自分のレアコイルかエレザードが使うワザの、相手のポケモンへのダメージを+20。",
+  "Choose 1 of your {G} Pokémon in play. Put a random {G} Pokémon from your deck that evolves from that Pokémon onto that Pokémon to evolve it. You can't use this card during your first turn or on a Pokémon that was put into play this turn.": "場の自分の草ポケモン1匹を選ぶ。山札から、そのポケモンから進化するランダムな草ポケモンをのせて進化させる。このカードは最初の自分の番と、この番に場に出たポケモンには使えない。",
+  "Put 2 random cards from among Magneton, Heliolisk, and Clemont's Backpack from your deck into your hand.": "自分の山札から、レアコイル・エレザード・「シトロンのリュック」の中からランダムな2枚を手札に加える。",
+  "Put a random Mega Evolution Pokémon ex from your deck into your hand.": "自分の山札からランダムなメガシンカポケモンexを1枚、手札に加える。",
+  "As long as the Pokémon this card is attached to is on your Bench, prevent all damage done to that Pokémon by your opponent's attacks and Abilities.": "このカードをつけたポケモンがベンチにいる限り、相手のワザや特性からそのポケモンが受けるダメージをすべて防ぐ。",
+  "Heal 90 damage from 1 of your {P} Pokémon that has 2 or more {P} Energy attached. If you healed any damage in this way, discard 2 {P} Energy from that Pokémon.": "超エネルギーが2個以上ついている自分の超ポケモン1匹のHPを90回復。回復したなら、そのポケモンから超エネルギーを2個トラッシュ。",
+  "Look at the top 4 cards of your deck. Put all Stage 1 Pokémon you find there into your hand. Shuffle the other cards back into your deck.": "自分の山札を上から4枚見て、その中の1進化ポケモンをすべて手札に加える。残りは山札にもどして切る。",
+  "Attacks used by Stage 1 Pokémon in play (both yours and your opponent's) do +10 damage to the opponent's Active Pokémon.": "場の1進化ポケモン全員（お互い）が使うワザの、相手のバトルポケモンへのダメージを+10。",
+  "Each Basic Pokémon in play (both yours and your opponent's) gets +20 HP.": "場のたねポケモン全員（お互い）の最大HPを+20。",
+  "The Retreat Cost of each {P} Pokémon in play (both yours and your opponent's) is 2 less.": "場の超ポケモン全員（お互い）のにげるコストを2個少なくする。",
+  "Discard a random Energy from among the Energy attached to all of your opponent's Pokémon that have an Ability.": "特性を持つ相手のポケモン全員についているエネルギーの中から、ランダムに1個トラッシュ。",
+  "During this turn, attacks used by your Pawmot do +80 damage to your opponent's Active Pokémon ex.": "この番、自分のパーモットが使うワザの、相手のバトルポケモンexへのダメージを+80。",
+  "Look at the top 3 cards of your deck.": "自分の山札を上から3枚見る。",
+});
+
 function jaEffectSentence(sentence) {
   const s = sentence.trim();
   if (EFFECT_SENTENCE_JA[s]) return EFFECT_SENTENCE_JA[s];

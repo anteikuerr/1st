@@ -131,6 +131,70 @@ def norm_rarity(v):
     return RARITY_NORM.get(v, v)
 
 
+TCGDEX_REPO = "https://github.com/tcgdex/cards-database.git"
+
+
+def load_tcgdex_trainer_effects():
+    """TCGdexリポジトリからトレーナーカードの効果文(en)を取り出す (第3ソース)。
+
+    hugoburguete/chase-manning にはトレーナーの効果文が無いため、TCGdexの
+    元データ (dataディレクトリの .ts ファイル) から補完する。
+    環境変数 TCGDEX_DIR で既存チェックアウトを指定でき、無ければ浅い
+    sparse clone を行う。失敗しても全体のビルドは止めない。
+    """
+    import subprocess
+    import tempfile
+
+    root = os.environ.get("TCGDEX_DIR")
+    if not root or not os.path.isdir(os.path.join(root, "data")):
+        tmp = tempfile.mkdtemp(prefix="tcgdex-")
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+                 TCGDEX_REPO, tmp],
+                check=True, capture_output=True, timeout=600)
+            subprocess.run(
+                ["git", "-C", tmp, "sparse-checkout", "set", "data/Pokémon TCG Pocket"],
+                check=True, capture_output=True, timeout=600)
+        except Exception as e:
+            print(f"tcgdex: クローン失敗のためトレーナー効果文はスキップ ({e})")
+            return {}
+        root = tmp
+
+    base = os.path.join(root, "data", "Pokémon TCG Pocket")
+    if not os.path.isdir(base):
+        print("tcgdex: Pocketデータが見つからないためスキップ")
+        return {}
+
+    set_ids = {}
+    for f in os.listdir(base):
+        if f.endswith(".ts"):
+            src = open(os.path.join(base, f), encoding="utf-8").read()
+            m = re.search(r'\bid:\s*"([^"]+)"', src)
+            if m:
+                set_ids[f[:-3]] = m.group(1)
+
+    effects = {}
+    for setname, sid in set_ids.items():
+        d = os.path.join(base, setname)
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            if not fn.endswith(".ts"):
+                continue
+            src = open(os.path.join(d, fn), encoding="utf-8").read()
+            if '"Trainer"' not in src:
+                continue
+            eff = re.search(r'effect:\s*\{\s*en:\s*"((?:[^"\\]|\\.)*)"', src)
+            if not eff:
+                continue
+            local = fn[:-3]
+            cid = f"{sid}-{local.zfill(3) if local.isdigit() else local}"
+            effects[cid] = eff.group(1).replace('\\"', '"').replace("\\n", " ")
+    print(f"tcgdex: トレーナー効果文 {len(effects)}件を取得")
+    return effects
+
+
 def main():
     # --- 1. hugoburguete: 詳細データ ---
     try:
@@ -277,6 +341,18 @@ def main():
             "setName": set_label,
         })
         added_shallow += 1
+
+    # --- 4. tcgdex: トレーナーの効果文を補完 ---
+    trainer_fx = load_tcgdex_trainer_effects()
+    n_tfx = 0
+    for cid, eff in trainer_fx.items():
+        d = details.get(cid)
+        if d is not None and d.get("c") == "Trainer" and not d.get("e"):
+            d["e"] = normalize_effect(eff)
+            n_tfx += 1
+    if trainer_fx:
+        n_trainer = sum(1 for d in details.values() if d.get("c") == "Trainer")
+        print(f"tcgdex: トレーナー効果文 {n_tfx}件を付与 (トレーナー総数 {n_trainer})")
 
     # chase拡張名で上書き (b3bなどの正式名)
     for sid, name in list(set_names.items()):

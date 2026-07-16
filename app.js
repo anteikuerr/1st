@@ -595,6 +595,7 @@ function detailFromSlim(cardId) {
     abilities: (d.ab || []).map((a) => ({ name: a.n, effect: a.e })),
     weaknesses: (d.w || []).map((w) => ({ type: w.t, value: w.v })),
     retreat: d.rc,
+    effect: d.e, // トレーナーカードの効果文
   };
 }
 
@@ -1009,6 +1010,11 @@ function renderModalInfo(detail) {
   if (detail.stage) info.push(jaStage(detail.stage));
   if (detail.rarity) info.push(jaRarity(detail.rarity));
   if (info.length) parts.push(`<div>${esc(info.join(" · "))}</div>`);
+
+  // トレーナーカードの効果
+  if (detail.effect) {
+    parts.push(`<div class="mi-move"><div class="mi-effect">${esc(jaEffect(detail.effect))}</div></div>`);
+  }
 
   // 特性・わざ
   for (const ab of detail.abilities || []) {

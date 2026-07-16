@@ -10,8 +10,25 @@
 const SUGGEST_STAPLES = [
   { names: ["Poké Ball", "モンスターボール"], count: 2 },
   { names: ["Professor's Research", "博士の研究"], count: 2 },
+  // カキ (エネルギーゾーンから炎2個の直接加速) は対象がいれば最優先クラス:
+  // バクガメスデッキで実験 56.9%→63.8% (+6.9pt)。アメより先に取る
+  { names: ["Kiawe", "カキ"], count: 2,
+    cond: (ctx) => ["アローラガラガラ", "Alolan Marowak", "バクガメス", "Turtonator"].some((n) => ctx.names.has(n)) },
   { names: ["Rare Candy", "ふしぎなアメ"], count: 2, cond: (ctx) => ctx.hasStage2 },
+  // トラッシュ参照の加速 (デンジ/ほのおのパッチ) は「トラッシュにエネがある」前提が
+  // 揃いにくく実験では中立〜逆効果だったため、アメより後ろ (枠が余ったときだけ)
+  { names: ["Volkner", "デンジ"], count: 2,
+    cond: (ctx) => ["エレキブル", "Electivire", "レントラー", "Luxray"].some((n) => ctx.names.has(n)) },
+  { names: ["Fantina", "メリッサ"], count: 2,
+    cond: (ctx) => ["フワライド", "Drifblim", "ムウマージ", "Mismagius"].some((n) => ctx.names.has(n)) },
+  { names: ["Brock", "タケシ"], count: 2,
+    cond: (ctx) => ["ゴローニャ", "Golem", "イワーク", "Onix"].some((n) => ctx.names.has(n)) },
+  // 色汎用のエネ加速: そのエネルギー色のデッキなら投入
   { names: ["Misty", "カスミ"], count: 2, cond: (ctx) => ctx.energies.has("Water") || ctx.energies.has("水") },
+  { names: ["Electric Generator", "エレキジェネレーター"], count: 2,
+    cond: (ctx) => ctx.energies.has("Lightning") || ctx.energies.has("雷") },
+  { names: ["Flame Patch", "ほのおのパッチ"], count: 2,
+    cond: (ctx) => ctx.energies.has("Fire") || ctx.energies.has("炎") },
   { names: ["X Speed", "スピーダー"], count: 2 },
   { names: ["Sabrina", "ナツメ"], count: 2 },
   { names: ["Giovanni", "サカキ"], count: 2 },
@@ -336,6 +353,11 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       return d && isStage2(d);
     }),
     energies: new Set(energies),
+    // デッキ内のポケモン名 (表示名と元言語名の両方)。ピンポイント系サポートの条件用
+    names: new Set(Object.keys(newDeck).flatMap((id) => {
+      const c = cardById.get(id);
+      return c ? [c.name, c.enName].filter(Boolean) : [];
+    })),
   };
   const findTrainer = (names) => {
     for (const c of cards) {
