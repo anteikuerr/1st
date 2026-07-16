@@ -195,6 +195,114 @@ def load_tcgdex_trainer_effects():
     return effects
 
 
+POKECLAUDE_META = "https://registry.npmjs.org/pokeclaude"
+
+# 上流ソースに種族情報がまだ無い新登場種族の進化情報 (TCG本家の慣例に従う)。
+# 既収録カードから引き継げるようになったら自然に不要になる
+SPECIES_FALLBACK = {
+    "Hisuian Lilligant": ("Stage 1", "Petilil"),
+    "Enamorus": ("Basic", None),
+    "Hisuian Sliggoo": ("Stage 1", "Goomy"),
+    "Hisuian Goodra": ("Stage 2", "Hisuian Sliggoo"),
+    "Munchlax": ("Basic", None),
+    "Ursaluna": ("Stage 2", "Ursaring"),
+    "Hisuian Zorua": ("Basic", None),
+    "Hisuian Zoroark": ("Stage 1", "Hisuian Zorua"),
+    "Zygarde": ("Basic", None),
+}
+
+COST_LETTERS = {
+    "G": "Grass", "R": "Fire", "W": "Water", "L": "Lightning",
+    "P": "Psychic", "F": "Fighting", "D": "Darkness", "M": "Metal", "C": "Colorless",
+}
+
+
+def load_pokeclaude_cards():
+    """pokeclaude (npm) 同梱のLimitlessスクレイプCSVを取り出す (第4ソース)。
+
+    最新弾 (B3b等) のワザ/HP/弱点/にげるコストを持つが、特性と進化情報は
+    信頼できないため使わない。hugoburgueteに無いカードの穴埋め専用。
+    """
+    import csv
+    import io
+    import tarfile
+    import urllib.request
+
+    try:
+        meta = get_json(POKECLAUDE_META)
+        tar_url = meta["versions"][meta["dist-tags"]["latest"]]["dist"]["tarball"]
+        req = urllib.request.Request(tar_url, headers=HEADERS)
+        blob = urllib.request.urlopen(req, timeout=180).read()
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+            member = next(m for m in tf.getmembers()
+                          if m.name.endswith("pokemon_pocket_cards.csv"))
+            text = tf.extractfile(member).read().decode("utf-8")
+    except Exception as e:
+        print(f"pokeclaude: 取得失敗のためスキップ ({e})")
+        return {}
+    out = {}
+    for r in csv.DictReader(io.StringIO(text)):
+        num = str(r.get("card_number", "")).strip()
+        sid = str(r.get("set_code", "")).strip()
+        if not num or not sid:
+            continue
+        cid = f"{sid}-{num.zfill(3) if num.isdigit() else num}"
+        out[cid] = r
+    print(f"pokeclaude: {len(out)}枚のCSVを取得")
+    return out
+
+
+def parse_csv_attacks(s):
+    """Limitless形式のワザ文字列を解析する。
+    例: "WWW Water Pulse: 80 - Your opponent's ... Asleep."
+        "PC Balloon Barrage 20+: - This attack does ..."
+        "W Icicle: 20; WWW Diving Icicles: - Discard ..." ("; "で複数ワザ)
+    """
+    if not s:
+        return []
+    # "; " 区切り。ただし効果文中の"; "を誤分割しないよう、
+    # コロンを含まない断片は直前のワザの続きとみなす
+    parts = []
+    for frag in s.split("; "):
+        if parts and ":" not in frag:
+            parts[-1] += "; " + frag
+        else:
+            parts.append(frag)
+    attacks = []
+    for p in parts:
+        head, _, rest = p.partition(":")
+        rest = rest.strip()
+        m = re.match(r"^([GRWLPFDMC]{1,5})\s+(.+)$", head.strip())
+        cost_s, name = (m.group(1), m.group(2)) if m else ("", head.strip())
+        dmg = ""
+        m2 = re.match(r"^(.*?)\s+(\d+[x+]?)$", name)  # "Balloon Barrage 20+" 形式
+        if m2:
+            name, dmg = m2.group(1), m2.group(2)
+        eff = ""
+        if rest.startswith("- "):
+            eff = rest[2:]
+        elif " - " in rest:
+            d2, _, eff = rest.partition(" - ")
+            dmg = dmg or d2.strip()
+        elif rest:
+            dmg = dmg or rest
+        cost = [COST_LETTERS[ch] for ch in cost_s]
+        if not cost:
+            # スクレイプ元でコストが欠落したカードが稀にある (デデンネex等3種)。
+            # 0コスト扱いは採点を壊すため保守的に推定: 40点以上=無色2 / 未満=無色1
+            # (デデンネex「サーキット」は攻略サイト記載の「2エネルギー」と一致)
+            n_dmg = int(re.sub(r"\D", "", dmg) or 0)
+            cost = ["Colorless"] * (2 if n_dmg >= 40 else 1)
+        atk = {"c": cost, "n": name}
+        if dmg:
+            atk["d"] = dmg
+        if eff:
+            atk["e"] = normalize_effect(
+                eff.strip().replace("[", "{").replace("]", "}"))
+        attacks.append(atk)
+    return attacks
+
+
 def main():
     # --- 1. hugoburguete: 詳細データ ---
     try:
@@ -342,7 +450,59 @@ def main():
         })
         added_shallow += 1
 
-    # --- 4. tcgdex: トレーナーの効果文を補完 ---
+    # --- 4. pokeclaude: 詳細ソースに無いカードのワザ/HP/弱点/にげるを補完 ---
+    pc = load_pokeclaude_cards()
+    cid_to_name = {c["id"]: c["name"] for c in cards}
+    filled_atk = 0
+    for cid, d in details.items():
+        if d.get("c") != "Pokemon" or d.get("a") or d.get("ab"):
+            continue
+        r = pc.get(cid)
+        if not r:
+            continue
+        atks = parse_csv_attacks(r.get("attacks", ""))
+        if atks:
+            d["a"] = atks
+            filled_atk += 1
+        hp = str(r.get("hp") or "")
+        if not d.get("h") and hp.isdigit():
+            d["h"] = int(hp)
+        if not d.get("w") and r.get("weakness"):
+            d["w"] = [{"t": r["weakness"], "v": "+20"}]
+        rc = str(r.get("retreat_cost") or "")
+        if d.get("rc") is None and rc.isdigit():
+            d["rc"] = int(rc)
+        if not d.get("t") and r.get("type") in POKEMON_TYPES:
+            d["t"] = [r["type"]]
+
+    # 進化段階・進化元は種族ごとに不変なので、既収録カードから同種族名で引き継ぐ。
+    # ポケポケの慣例: 「Xex」「Mega Xex」はどちらも種族Xと同じ段階・進化元
+    # (例: Mega Swampert ex = Stage 2 / dv: Marshtomp)
+    species = {}
+    for c in cards:
+        d = details.get(c["id"])
+        if d and d.get("c") == "Pokemon" and d.get("s"):
+            base = re.sub(r"^Mega ", "", re.sub(r" ex$", "", c["name"]))
+            species.setdefault(base, (d.get("s"), d.get("dv")))
+    filled_evo = 0
+    unresolved = []
+    for c in cards:
+        d = details.get(c["id"])
+        if not d or d.get("c") != "Pokemon" or d.get("s") or not d.get("a"):
+            continue
+        base = re.sub(r"^Mega ", "", re.sub(r" ex$", "", c["name"]))
+        if base in species or base in SPECIES_FALLBACK:
+            s, dv = species.get(base) or SPECIES_FALLBACK[base]
+            d["s"] = s
+            if dv:
+                d["dv"] = dv
+            filled_evo += 1
+        else:
+            unresolved.append(c["name"])
+    print(f"pokeclaude: ワザ補完{filled_atk}枚 / 進化情報引き継ぎ{filled_evo}枚 / "
+          f"種族未解決{len(unresolved)}枚 {sorted(set(unresolved))[:12]}")
+
+    # --- 5. tcgdex: トレーナーの効果文を補完 ---
     trainer_fx = load_tcgdex_trainer_effects()
     n_tfx = 0
     for cid, eff in trainer_fx.items():
@@ -353,6 +513,27 @@ def main():
     if trainer_fx:
         n_trainer = sum(1 for d in details.values() if d.get("c") == "Trainer")
         print(f"tcgdex: トレーナー効果文 {n_tfx}件を付与 (トレーナー総数 {n_trainer})")
+
+    # --- 6. トレーナー効果の同名補完 (A4b等の再録・別レアリティ版) ---
+    eff_by_name = {}
+    for c in cards:
+        d = details.get(c["id"])
+        if d and d.get("c") == "Trainer" and d.get("e"):
+            eff_by_name.setdefault(c["name"], d["e"])
+    n_reprint = 0
+    still_missing = []
+    for c in cards:
+        d = details.get(c["id"])
+        if not d or d.get("c") != "Trainer":
+            continue
+        if not d.get("e"):
+            if c["name"] in eff_by_name:
+                d["e"] = eff_by_name[c["name"]]
+                n_reprint += 1
+            else:
+                still_missing.append(c["name"])
+    print(f"再録補完: トレーナー効果 {n_reprint}件 / "
+          f"効果未収録 {len(still_missing)}枚 {sorted(set(still_missing))}")
 
     # chase拡張名で上書き (b3bなどの正式名)
     for sid, name in list(set_names.items()):
