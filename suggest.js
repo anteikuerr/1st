@@ -34,6 +34,13 @@ const SUGGEST_WEIGHTS = {
   linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
   megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
   trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
+  // 2色デッキでは指定色コスト1個ごとに減点 (単色デッキには影響しない)。
+  // エネルギーゾーンが毎番ランダム1色なので、2色時は無色コストの相方が事故に強い。
+  // 実験: 2色コア(タケルライコ/カイリュー系)の平均勝率 14.0%→40.2%
+  dualTypedP: 10,
+  // にげるコスト減点は検証の結果不採用 (0): 高いにげコストは高HP/大打点と相関するため
+  // 減点すると勝率が下がる (0で51.9% / 5で47.3%)。ルール自体はシミュレータ側で再現済み
+  retreatP: 0,
   thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
   // タイプ相性 (公式ルール「弱点=+20」由来)。環境Tier1デッキ4種から導出した分布
   // (環境が変わったら lab.js theory10 で再導出)。実験では攻防セットで
@@ -77,7 +84,8 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       const v = parseDmg(a.d);
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
-    return dmgScore(dmg) - cost * weights.costP + (d.h || 0) * weights.hpW +
+    return dmgScore(dmg) - cost * weights.costP + (d.h || 0) * weights.hpW -
+      (d.rc || 0) * (weights.retreatP || 0) +
       (/ex$/.test(card.name) ? weights.exB : 0) +
       (/^メガ|^Mega /.test(card.name) && /ex$/.test(card.name) ? -(weights.megaP || 0) : 0) +
       ((d.ab || []).length ? (weights.abB || 0) : 0);
@@ -248,12 +256,16 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   const usableScore = (e, es) => {
     let dmg = 0;
     let cost = 0;
+    let typedN = 0;
     for (const a of e.d.a || []) {
       if (!(a.c || []).filter(nonColorless).every((t) => es.includes(t))) continue;
       const v = parseDmg(a.d);
-      if (v > dmg) { dmg = v; cost = (a.c || []).length; }
+      if (v > dmg) { dmg = v; cost = (a.c || []).length; typedN = (a.c || []).filter(nonColorless).length; }
     }
     if (!dmg) return -1;
+    // 2色デッキの色事故: エネルギーゾーンは毎番ランダム1色なので、2色登録だと
+    // 指定色コストが濃いワザほど「欲しい色が揃わない番」が増える → 指定色1個ごとに減点
+    const dualPenalty = es.length >= 2 ? typedN * (weights.dualTypedP || 0) : 0;
     // 攻撃相性: 自タイプがメタの弱点を突く期待値で打点を評価
     const myType = (e.d.t || [])[0];
     const hitShare = (metaWeak && myType && metaWeak[myType]) || 0;
@@ -264,6 +276,7 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     const myWeak = (e.d.w || [])[0]?.t;
     const hitBy = (metaAtk && myWeak && metaAtk[myWeak]) || 0;
     return dmgComponent - cost * effCostP + (e.d.h || 0) * weights.hpW -
+      (e.d.rc || 0) * (weights.retreatP || 0) - dualPenalty -
       hitBy * (weights.typeDefP ?? 0) +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
       (/^メガ|^Mega /.test(e.card.name) && /ex$/.test(e.card.name) ? -(weights.megaP || 0) : 0) +

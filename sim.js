@@ -189,6 +189,7 @@ function buildSimDeck({ deck, energies, cardById, details }) {
         hp: (d.h || 0) + (abFx?.hpPlus || 0),
         ex: /ex$/.test(card.name),
         mega: /ex$/.test(card.name) && (/^メガ/.test(card.name) || /^Mega /.test(card.enName || card.name)),
+        rc: d.rc || 0,
         weakness: (d.w || [])[0]?.t || null,
         types: d.t || [],
         attacks,
@@ -461,11 +462,15 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       }
     }
 
-    // 交代 (簡易: 攻撃不能時のみ)
-    if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para) {
+    // にげる (ルール: にげるコスト分のエネルギーをトラッシュ。ねむり/マヒ中は不可)
+    // 攻撃できないバトルポケモンを、攻撃できるベンチと入れ替える。
+    // コストを払えない重いポケモンはそのまま前に居座る = にげるコストのテンポ損
+    if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
+        me.active.energy.length >= me.active.rc) {
       const readyIdx = me.bench.findIndex((m) => bestUsable(m));
       if (readyIdx >= 0 && attackerValue(me.bench[readyIdx]) > attackerValue(me.active)) {
         const tmp = me.active;
+        tmp.energy.splice(0, tmp.rc); // にげるコスト分をトラッシュ
         tmp.poison = tmp.burn = tmp.sleep = tmp.para = tmp.confuse = false;
         me.active = me.bench[readyIdx];
         me.bench[readyIdx] = tmp;
