@@ -35,6 +35,16 @@ const SUGGEST_WEIGHTS = {
   megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
   trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
   thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
+  // タイプ相性 (公式ルール「弱点=+20」由来)。環境Tier1デッキ4種から導出した分布
+  // (環境が変わったら lab.js theory10 で再導出)。実験では攻防セットで
+  // リザードンex+7.4pt/ダークライex+2.9pt (退化はギャラドスex-3.4ptのみ)
+  typeDefP: 40, // 自分の弱点がメタの攻撃色と重なるときの減点係数
+  meta: {
+    // メタの攻撃色シェア (アタッカーのタイプ分布): これを弱点に持つ相方を避ける
+    atk: { Grass: 0.296, Fighting: 0.222, Darkness: 0.222, Colorless: 0.185, Lightning: 0.074 },
+    // メタの弱点色シェア: この色で殴れる相方は+20打点の期待値で確定数を評価
+    weak: { Fighting: 0.37, Fire: 0.222, Grass: 0.185, Psychic: 0.148, Lightning: 0.074 },
+  },
 };
 
 function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS }) {
@@ -221,6 +231,12 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   }
 
   // --- 相方ポケモン ---
+  // タイプ相性 (公式ルール「弱点=+20」から導出):
+  //   攻撃面: 相手メタの弱点分布に自分のタイプが刺さる確率ぶん、+20した打点で確定数を評価
+  //   防御面: 自分の弱点がメタの攻撃色と一致する確率ぶん減点 (先に確定数を取られる)
+  const metaWeak = weights.meta?.weak || null; // メタが弱点とする色の分布 {Fire: 0.3, ...}
+  const metaAtk = weights.meta?.atk || null;   // メタの攻撃色の分布
+
   // エネ加速シナジー: コアがベンチへのエネ加速(ワザ/特性)を持つなら、
   // 重いワザの相方も回るのでコストペナルティを緩和する
   const hasAccel = coreLines.flat().some((m) =>
@@ -238,7 +254,17 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       if (v > dmg) { dmg = v; cost = (a.c || []).length; }
     }
     if (!dmg) return -1;
-    return dmgScore(dmg) - cost * effCostP + (e.d.h || 0) * weights.hpW +
+    // 攻撃相性: 自タイプがメタの弱点を突く期待値で打点を評価
+    const myType = (e.d.t || [])[0];
+    const hitShare = (metaWeak && myType && metaWeak[myType]) || 0;
+    const dmgComponent = hitShare > 0
+      ? dmgScore(dmg) * (1 - hitShare) + dmgScore(dmg + 20) * hitShare
+      : dmgScore(dmg);
+    // 防御相性: 自分の弱点色がメタの攻撃色と重なる分だけ減点
+    const myWeak = (e.d.w || [])[0]?.t;
+    const hitBy = (metaAtk && myWeak && metaAtk[myWeak]) || 0;
+    return dmgComponent - cost * effCostP + (e.d.h || 0) * weights.hpW -
+      hitBy * (weights.typeDefP ?? 0) +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
       (/^メガ|^Mega /.test(e.card.name) && /ex$/.test(e.card.name) ? -(weights.megaP || 0) : 0) +
       ((e.d.ab || []).length ? (weights.abB || 0) : 0);
