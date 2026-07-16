@@ -187,6 +187,7 @@ function buildSimDeck({ deck, energies, cardById, details }) {
         stage2: isPokemon && /2|Stage2|Stage 2/.test(d.s || ""),
         evolvesFrom: d.dv ? (typeof jaCardName === "function" ? jaCardName(d.dv) : d.dv) : null,
         hp: (d.h || 0) + (abFx?.hpPlus || 0),
+        trainerType: !isPokemon ? (d.tt || null) : null,
         ex: /ex$/.test(card.name),
         mega: /ex$/.test(card.name) && (/^メガ/.test(card.name) || /^Mega /.test(card.enName || card.name)),
         rc: d.rc || 0,
@@ -304,20 +305,46 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     return false;
   };
 
+  // スタジアム (場に1枚。新しいものを出すと前のものは消える)
+  let stadium = null; // { key, owner }
+  const STADIUM_KEY = {
+    "Training Area": "Training Area", "トレーニングエリア": "Training Area",
+    "Starting Plains": "Starting Plains", "はじまりの平原": "Starting Plains",
+    "Peculiar Plaza": "Peculiar Plaza", "ふしぎな広場": "Peculiar Plaza",
+    "Mesagoza": "Mesagoza", "テーブルシティ": "Mesagoza",
+  };
+
   let turnNo = 0;
   while (turnNo < 60) {
     turnNo++;
     const me = turnNo % 2 === 1 ? A : B;
     const op = turnNo % 2 === 1 ? B : A;
     me.turn++;
+    me.supporterUsed = false; // サポートは1ターン1枚
 
     if (me.deck.length) me.hand.push(me.deck.shift());
+
+    // スタジアム: はじまりの平原 (場のたね全員+20HP) の適用/解除を同期
+    for (const pl of [A, B]) {
+      for (const mon of board(pl)) {
+        const want = stadium?.key === "Starting Plains" && mon.basic;
+        if (want && !mon.plains) { mon.hp += 20; mon.plains = true; }
+        else if (!want && mon.plains) { mon.hp -= 20; mon.plains = false; }
+      }
+    }
+    // スタジアム: テーブルシティ (毎ターンコインでポケモンサーチ)
+    if (stadium?.key === "Mesagoza" && rng() < 0.5) {
+      const pi = me.deck.findIndex((x) => x.pokemon);
+      if (pi >= 0) me.hand.push(me.deck.splice(pi, 1)[0]);
+    }
 
     // トレーナーズ (簡易効果)
     for (let i = me.hand.length - 1; i >= 0; i--) {
       const c = me.hand[i];
       if (!c.trainer) continue;
       const t = c.trainer;
+      if (c.trainerType === "Supporter" && me.supporterUsed) continue;
+      const handBefore = me.hand.length;
       if (t === "Poké Ball" || t === "モンスターボール") {
         const bi = me.deck.findIndex((x) => x.basic);
         if (bi >= 0) me.hand.push(me.deck.splice(bi, 1)[0]);
@@ -371,9 +398,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         }
       } else if (t === "Giant Cape" || t === "おおきなマント") {
         // HP+20のどうぐ (1体1枚)
-        const target = board(me).find((m) => !m.cape);
+        const target = board(me).find((m) => !m.tool);
         if (target) {
-          target.cape = true;
+          target.tool = "Giant Cape";
           target.hp += 20;
           me.hand.splice(i, 1);
         }
@@ -445,9 +472,46 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
             me.hand.splice(i, 1);
           }
         }
+      } else if (t === "Rocky Helmet" || t === "ゴツゴツメット" || t === "Poison Barb" || t === "どくバリ") {
+        // 反撃系どうぐ: バトル場につける (1体1枚)
+        if (me.active && !me.active.tool) {
+          me.active.tool = (t === "どくバリ" || t === "Poison Barb") ? "Poison Barb" : "Rocky Helmet";
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Leaf Cape" || t === "リーフマント") {
+        // 草ポケモンのHP+30
+        const target = board(me).find((m) => !m.tool && (m.types || []).includes("Grass"));
+        if (target) {
+          target.tool = "Leaf Cape";
+          target.hp += 30;
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Leftovers" || t === "たべのこし") {
+        // 自分の番の終わりにバトル場ならHP10回復
+        if (me.active && !me.active.tool) {
+          me.active.tool = "Leftovers";
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Sitrus Berry" || t === "オボンのみ" || t === "Lum Berry" || t === "ラムのみ") {
+        const key = (t === "Sitrus Berry" || t === "オボンのみ") ? "Sitrus Berry" : "Lum Berry";
+        const target = board(me).find((m) => !m.tool);
+        if (target) {
+          target.tool = key;
+          me.hand.splice(i, 1);
+        }
+      } else if (c.trainerType === "Stadium") {
+        // スタジアム: 効果を実装済みのものだけ出す (前のスタジアムは消える)
+        const key = STADIUM_KEY[t];
+        if (key && (!stadium || (stadium.owner !== me && stadium.key !== key))) {
+          stadium = { key, owner: me };
+          me.hand.splice(i, 1);
+        } else if (!key) {
+          me.hand.splice(i, 1); // 効果未実装のスタジアムは手札を圧迫しないよう捨てる
+        }
       } else {
         me.hand.splice(i, 1);
       }
+      if (me.hand.length < handBefore && c.trainerType === "Supporter") me.supporterUsed = true;
     }
 
     // たねをベンチへ
@@ -520,12 +584,17 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     // にげる (ルール: にげるコスト分のエネルギーをトラッシュ。ねむり/マヒ中は不可)
     // 攻撃できないバトルポケモンを、攻撃できるベンチと入れ替える。
     // コストを払えない重いポケモンはそのまま前に居座る = にげるコストのテンポ損
+    const effRc = me.active
+      ? Math.max(0, me.active.rc -
+          // スタジアム: ふしぎな広場 (超ポケモンのにげるコスト-2、お互い)
+          (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0))
+      : 0;
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
-        me.active.energy.length >= me.active.rc) {
+        me.active.energy.length >= effRc) {
       const readyIdx = me.bench.findIndex((m) => bestUsable(m));
       if (readyIdx >= 0 && attackerValue(me.bench[readyIdx]) > attackerValue(me.active)) {
         const tmp = me.active;
-        me.etrash.push(...tmp.energy.splice(0, tmp.rc)); // にげるコスト分をトラッシュ
+        me.etrash.push(...tmp.energy.splice(0, effRc)); // にげるコスト分をトラッシュ
         tmp.poison = tmp.burn = tmp.sleep = tmp.para = tmp.confuse = false;
         me.active = me.bench[readyIdx];
         me.bench[readyIdx] = tmp;
@@ -560,6 +629,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           let dmg = baseDmg;
           if (dmg > 0) {
             dmg += boost();
+            // スタジアム: トレーニングエリア (1進化ポケモンのワザ+10、お互い)
+            if (stadium?.key === "Training Area" && me.active.evolvesFrom && !me.active.stage2) dmg += 10;
             if (op.active.weakness && (me.active.types || []).includes(op.active.weakness)) dmg += 20;
             dmg = applyReduction(op.active, dmg, turnNo);
             op.active.damage += dmg;
@@ -639,6 +710,16 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           if (r2) return r2 === "A" ? 1 : 0;
         }
 
+        // 反撃系どうぐ: 生き残った防御側がゴツゴツメット/どくバリを持っていた場合
+        if (dmg > 0 && op.active && op.active.damage > 0 && me.active) {
+          if (op.active.tool === "Rocky Helmet") {
+            me.active.damage += 20;
+            if (me.active.damage >= me.active.hp && knockOut(op, me, me.active)) return op === A ? 1 : 0;
+          } else if (op.active.tool === "Poison Barb") {
+            me.active.poison = true;
+          }
+        }
+
         // 自分への効果
         if (fx.selfDmg) me.active.damage += fx.selfDmg;
         if (fx.heal) me.active.damage = Math.max(0, me.active.damage - fx.heal);
@@ -683,6 +764,23 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     if (me.active) me.active.lockAttack = false; // ワザロックは1ターンで解除
     me.plusDmg = 0; // 打点補正はこの番のみ
     me.noAttack = false; // カキ等の「この番は終わる」も解除
+
+    // ターン終了時のどうぐ効果
+    if (me.active?.tool === "Leftovers") {
+      me.active.damage = Math.max(0, me.active.damage - 10); // たべのこし
+    }
+    for (const pl of [A, B]) {
+      for (const mon of board(pl)) {
+        if (mon.tool === "Sitrus Berry" && mon.damage > 0 && mon.hp - mon.damage <= mon.hp / 2) {
+          mon.damage = Math.max(0, mon.damage - 30); // オボンのみ (使ったら剥がれる)
+          mon.tool = null;
+        } else if (mon.tool === "Lum Berry" &&
+                   (mon.poison || mon.burn || mon.sleep || mon.para || mon.confuse)) {
+          mon.poison = mon.burn = mon.sleep = mon.para = mon.confuse = false; // ラムのみ
+          mon.tool = null;
+        }
+      }
+    }
 
     // ポケモンチェック (どく / やけど / ねむり判定)
     for (const [pl, opp] of [[A, B], [B, A]]) {

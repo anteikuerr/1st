@@ -596,8 +596,13 @@ function detailFromSlim(cardId) {
     weaknesses: (d.w || []).map((w) => ({ type: w.t, value: w.v })),
     retreat: d.rc,
     effect: d.e, // トレーナーカードの効果文
+    trainerType: d.tt, // グッズ/サポート/どうぐ/スタジアム
   };
 }
+
+const TRAINER_TYPE_LABELS = {
+  Item: "グッズ", Supporter: "サポート", Tool: "ポケモンのどうぐ", Stadium: "スタジアム",
+};
 
 async function fetchDetail(cardId) {
   if (state.detailCache.has(cardId)) return state.detailCache.get(cardId);
@@ -1004,7 +1009,8 @@ function renderModalInfo(detail) {
     `<div class="mi-dim">${esc(card.setName)} · ${esc(card.id)}</div>`,
   ];
   const info = [];
-  if (detail.category) info.push(CATEGORY_LABELS[detail.category] || detail.category);
+  if (detail.trainerType) info.push(TRAINER_TYPE_LABELS[detail.trainerType] || detail.trainerType);
+  else if (detail.category) info.push(CATEGORY_LABELS[detail.category] || detail.category);
   if (detail.hp) info.push(`HP ${detail.hp}`);
   if (detail.types?.length) info.push(detail.types.map(jaType).join("/"));
   if (detail.stage) info.push(jaStage(detail.stage));

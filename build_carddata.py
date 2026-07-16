@@ -188,14 +188,43 @@ def load_tcgdex_trainer_effects():
             eff = re.search(r'effect:\s*\{\s*en:\s*"((?:[^"\\]|\\.)*)"', src)
             if not eff:
                 continue
+            tt = re.search(r'trainerType:\s*"([^"]+)"', src)
             local = fn[:-3]
             cid = f"{sid}-{local.zfill(3) if local.isdigit() else local}"
-            effects[cid] = eff.group(1).replace('\\"', '"').replace("\\n", " ")
+            effects[cid] = {
+                "e": eff.group(1).replace('\\"', '"').replace("\\n", " "),
+                "tt": tt.group(1) if tt else None,
+            }
     print(f"tcgdex: トレーナー効果文 {len(effects)}件を取得")
     return effects
 
 
 POKECLAUDE_META = "https://registry.npmjs.org/pokeclaude"
+
+# tcgdex未収録の新弾トレーナーの区分 (公式のカード区分に従う)。
+# 効果文と同じく、上流が追いついたら自然に不要になる
+TRAINER_TYPE_FALLBACK = {
+    # B2a パルデアワンダー (tcgdexに1枚だけ欠け)
+    "Big Air Balloon": "Tool",
+    # B2b メガシャイン
+    "Nasty Notice": "Item", "Maintenance": "Item",
+    "Iris": "Supporter", "Calem": "Supporter",
+    "Hiking Trail": "Stadium",
+    # B3 波動ビート
+    "Field Blower": "Item", "Lucky Egg": "Tool",
+    "Korrina": "Supporter", "Cabbie": "Supporter", "Cheren": "Supporter",
+    "Parasol Lady": "Supporter",
+    "Fragrant Forest": "Stadium", "Arena of Antiquity": "Stadium",
+    "Bounded Field": "Stadium",
+    # B3a 進撃パラドックス
+    "Ancient Booster Energy Capsule": "Tool", "Future Booster Energy Capsule": "Tool",
+    "Juliana": "Supporter", "Professor Sada": "Supporter", "Professor Turo": "Supporter",
+    "Area Zero": "Stadium",
+    # B3b ミラクルデイズ
+    "Small Balloon": "Tool", "Elegant Cape": "Tool",
+    "Elesa": "Supporter", "Puppy-Loving Girl": "Supporter", "Wallace": "Supporter",
+    "Kid's Room": "Stadium",
+}
 
 # 上流ソースに種族情報がまだ無い新登場種族の進化情報 (TCG本家の慣例に従う)。
 # 既収録カードから引き継げるようになったら自然に不要になる
@@ -505,27 +534,37 @@ def main():
     # --- 5. tcgdex: トレーナーの効果文を補完 ---
     trainer_fx = load_tcgdex_trainer_effects()
     n_tfx = 0
-    for cid, eff in trainer_fx.items():
+    for cid, fx in trainer_fx.items():
         d = details.get(cid)
-        if d is not None and d.get("c") == "Trainer" and not d.get("e"):
-            d["e"] = normalize_effect(eff)
+        if d is None or d.get("c") != "Trainer":
+            continue
+        if not d.get("e"):
+            d["e"] = normalize_effect(fx["e"])
             n_tfx += 1
+        if fx.get("tt") and not d.get("tt"):
+            d["tt"] = fx["tt"]
     if trainer_fx:
         n_trainer = sum(1 for d in details.values() if d.get("c") == "Trainer")
         print(f"tcgdex: トレーナー効果文 {n_tfx}件を付与 (トレーナー総数 {n_trainer})")
 
     # --- 6. トレーナー効果の同名補完 (A4b等の再録・別レアリティ版) ---
     eff_by_name = {}
+    tt_by_name = dict(TRAINER_TYPE_FALLBACK)
     for c in cards:
         d = details.get(c["id"])
-        if d and d.get("c") == "Trainer" and d.get("e"):
-            eff_by_name.setdefault(c["name"], d["e"])
+        if d and d.get("c") == "Trainer":
+            if d.get("e"):
+                eff_by_name.setdefault(c["name"], d["e"])
+            if d.get("tt"):
+                tt_by_name.setdefault(c["name"], d["tt"])
     n_reprint = 0
     still_missing = []
     for c in cards:
         d = details.get(c["id"])
         if not d or d.get("c") != "Trainer":
             continue
+        if not d.get("tt") and c["name"] in tt_by_name:
+            d["tt"] = tt_by_name[c["name"]]
         if not d.get("e"):
             if c["name"] in eff_by_name:
                 d["e"] = eff_by_name[c["name"]]

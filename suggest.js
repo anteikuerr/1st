@@ -29,6 +29,9 @@ const SUGGEST_STAPLES = [
     cond: (ctx) => ctx.energies.has("Lightning") || ctx.energies.has("雷") },
   { names: ["Flame Patch", "ほのおのパッチ"], count: 2,
     cond: (ctx) => ctx.energies.has("Fire") || ctx.energies.has("炎") },
+  // どうぐ (実験: 各+0.5pt。反撃と回復は枠が余ったとき素直に強い)
+  { names: ["Rocky Helmet", "ゴツゴツメット"], count: 2 },
+  { names: ["Sitrus Berry", "オボンのみ"], count: 2 },
   { names: ["X Speed", "スピーダー"], count: 2 },
   { names: ["Sabrina", "ナツメ"], count: 2 },
   { names: ["Giovanni", "サカキ"], count: 2 },
@@ -358,6 +361,11 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       const c = cardById.get(id);
       return c ? [c.name, c.enName].filter(Boolean) : [];
     })),
+    // たねポケモンだけのデッキか (はじまりの平原などの条件用)
+    allBasic: Object.keys(newDeck).every((id) => {
+      const d = details.get(id);
+      return !isPokemon(d) || isBasic(d);
+    }),
   };
   const findTrainer = (names) => {
     for (const c of cards) {
