@@ -1,15 +1,17 @@
 :root {
-  --bg: #12141c;
-  --bg-panel: #1b1e2b;
-  --bg-card: #232738;
-  --border: #333a52;
-  --text: #e8eaf2;
-  --text-dim: #9aa0b8;
-  --accent: #ffcb3b;
-  --accent-text: #1b1e2b;
-  --danger: #e05d5d;
-  --ok: #5dc98a;
-  --radius: 10px;
+  /* あたたかみのあるライトテーマ (クリーム × ポケモンイエロー) */
+  --bg: #f7f2e8;
+  --bg-panel: #fffdf7;
+  --bg-card: #ffffff;
+  --border: #e8dfcd;
+  --text: #443f35;
+  --text-dim: #97907e;
+  --accent: #ffc53d;
+  --accent-text: #4a3a10;
+  --danger: #e07a5f;
+  --ok: #6fae63;
+  --radius: 14px;
+  --shadow: 0 2px 10px rgba(120, 100, 60, .1);
 }
 
 * { box-sizing: border-box; }
@@ -39,8 +41,8 @@ html, body {
   gap: 12px;
   padding: 10px 16px;
   background: var(--bg-panel);
-  border-bottom: 2px solid var(--accent);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+  border-bottom: 3px solid var(--accent);
+  box-shadow: var(--shadow);
 }
 
 .app-header h1 {
@@ -103,6 +105,7 @@ html, body {
 }
 
 input, select, textarea {
+  box-shadow: var(--shadow);
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
@@ -117,11 +120,14 @@ button {
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 12px;
+  border-radius: 999px;
+  padding: 9px 14px;
   font-size: 14px;
   cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform .08s, box-shadow .12s;
 }
+button:active { transform: scale(.96); }
 button:hover { border-color: var(--text-dim); }
 button.primary {
   background: var(--accent);
@@ -190,7 +196,7 @@ button.danger { color: var(--danger); }
   content-visibility: auto;
   contain-intrinsic-size: 140px 196px;
 }
-.card-cell:hover { transform: translateY(-3px); filter: brightness(1.08); }
+.card-cell:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 8px 18px rgba(120, 100, 60, .22); }
 
 .card-cell img {
   width: 100%;
@@ -216,6 +222,11 @@ button.danger { color: var(--danger); }
   padding: 6px;
 }
 
+.card-cell {
+  box-shadow: var(--shadow);
+  border-radius: 10px;
+}
+
 .card-cell .in-deck {
   position: absolute;
   top: 6px;
@@ -230,14 +241,14 @@ button.danger { color: var(--danger); }
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  box-shadow: 0 1px 4px rgba(120, 100, 60, .35);
 }
 
 .card-cell .card-id {
   position: absolute;
   left: 6px;
   bottom: 6px;
-  background: rgba(0,0,0,.65);
+  background: rgba(70, 60, 40, .72);
   color: #fff;
   font-size: 10px;
   padding: 2px 6px;
@@ -251,6 +262,7 @@ button.danger { color: var(--danger); }
 .deck-panel {
   background: var(--bg-panel);
   border-left: 1px solid var(--border);
+  box-shadow: -2px 0 12px rgba(120, 100, 60, .07);
   padding: 14px;
   position: sticky;
   top: 53px;
@@ -286,7 +298,7 @@ button.danger { color: var(--danger); }
 .suggest-btn {
   width: 100%;
   margin-top: 2px;
-  background: linear-gradient(135deg, #ffcb3b, #ff9d3b);
+  background: linear-gradient(135deg, #ffd45e, #ffab4a);
   color: var(--accent-text);
   border: none;
   font-weight: bold;
@@ -471,20 +483,20 @@ button.danger { color: var(--danger); }
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,.7);
+  background: rgba(90, 75, 45, .45);
 }
 
 .modal-body {
   position: relative;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 18px;
   max-width: 420px;
   width: calc(100vw - 32px);
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .6);
+  box-shadow: 0 14px 44px rgba(120, 100, 60, .3);
 }
 
 .modal-body h3 { margin-top: 0; }
@@ -556,7 +568,7 @@ button.danger { color: var(--danger); }
   padding: 10px 20px;
   font-size: 14px;
   z-index: 60;
-  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  box-shadow: 0 6px 20px rgba(120, 100, 60, .25);
 }
 .toast.hidden { display: none; }
 

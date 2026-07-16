@@ -60,6 +60,9 @@ function parseAttackFx(text) {
   }
   if ((m = text.match(/During your opponent's next turn, this Pokémon takes [−–-](\d+) damage from attacks/i))) fx.shield = +m[1];
   if ((m = text.match(/does (\d+) more damage for each Energy attached to your opponent's Active Pokémon/i))) fx.perOppEnergy = +m[1];
+  if ((m = text.match(/does (\d+) more damage for each (?:\{(\w)\} )?Energy attached to this Pokémon/i))) {
+    fx.perSelfEnergy = { per: +m[1], type: m[2] ? SIM_ENERGY_LETTER[m[2]] : null };
+  }
   if ((m = text.match(/This attack does (\d+)( more)? damage for each of your Benched/i))) {
     fx.perMyBench = { per: +m[1], more: !!m[2] };
   }
@@ -123,6 +126,7 @@ function attackEv(dmg, fx) {
   if (fx.tailsNothing) ev *= 0.5;
   if (fx.perMyBench) ev = fx.perMyBench.more ? ev + fx.perMyBench.per * 2 : fx.perMyBench.per * 2;
   if (fx.perOppEnergy) ev += fx.perOppEnergy * 2;
+  if (fx.perSelfEnergy) ev += fx.perSelfEnergy.per * 3;
   if (fx.snipeAny) ev = Math.max(ev, fx.snipeAny * 0.9);
   if (fx.hitAll) ev = Math.max(ev, fx.hitAll * 3);
   if (fx.benchAll) ev += fx.benchAll;
@@ -523,6 +527,12 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           dmg = fx.perMyBench.more ? dmg + fx.perMyBench.per * me.bench.length : fx.perMyBench.per * me.bench.length;
         }
         if (fx.perOppEnergy) dmg += fx.perOppEnergy * op.active.energy.length;
+        if (fx.perSelfEnergy) {
+          const n = fx.perSelfEnergy.type
+            ? me.active.energy.filter((t) => t === fx.perSelfEnergy.type).length
+            : me.active.energy.length;
+          dmg += fx.perSelfEnergy.per * n;
+        }
         // 条件付き追加ダメージ
         if (fx.ifOppEx && op.active.ex) dmg += fx.ifOppEx;
         if (fx.ifOppDamaged && op.active.damage > 0) dmg += fx.ifOppDamaged;

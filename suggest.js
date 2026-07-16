@@ -176,12 +176,31 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     for (const m of line) add(m.card.id, 2);
   }
 
-  // --- エネルギータイプ決定 (コアのワザコストから頻度順に2つまで) ---
+  // --- エネルギータイプ決定 ---
+  // コアのワザコストに加えて、効果テキストが参照する色 ({L}の数×20追加 等) も読む。
+  // ミライドンex(コスト無色3+雷参照効果)のようなカードで色を取り違えないため
+  const EFFECT_TOKEN_TYPE = {
+    G: "Grass", R: "Fire", W: "Water", L: "Lightning",
+    P: "Psychic", F: "Fighting", D: "Darkness", M: "Metal",
+  };
   const typeCount = new Map();
+  const bump = (t, w) => { if (t) typeCount.set(t, (typeCount.get(t) || 0) + w); };
   for (const line of coreLines) {
     for (const m of line) {
       for (const a of m.d.a || []) {
-        for (const t of (a.c || []).filter(nonColorless)) typeCount.set(t, (typeCount.get(t) || 0) + 1);
+        for (const t of (a.c || []).filter(nonColorless)) bump(t, 2);
+        for (const tok of String(a.e || "").matchAll(/\{(\w)\}/g)) bump(EFFECT_TOKEN_TYPE[tok[1]], 1);
+      }
+      for (const ab of m.d.ab || []) {
+        for (const tok of String(ab.e || "").matchAll(/\{(\w)\}/g)) bump(EFFECT_TOKEN_TYPE[tok[1]], 1);
+      }
+    }
+  }
+  // コストも効果も無色のみのコアは、ポケモン自身のタイプを弱い手がかりに
+  if (!typeCount.size) {
+    for (const line of coreLines) {
+      for (const m of line) {
+        for (const t of (m.d.t || []).filter((x) => nonColorless(x) && x !== "Dragon")) bump(t, 1);
       }
     }
   }
@@ -239,13 +258,19 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   }
   candidates.sort((a, b) => b.score - a.score);
 
+  // 一貫性: 相方の2進化ラインは1本まで (コアは除く)。2進化2本は事故率が高い
+  let partnerStage2 = 0;
+  const maxStage2 = weights.maxStage2Lines ?? 1;
   for (const cand of candidates) {
     if (pokemonCount() >= SIZE - TRAINER_SLOTS) break;
     if (cand.line.some((m) => hasName(m.card.name))) continue;
     if (pokemonCount() + cand.line.length * 2 > SIZE - TRAINER_SLOTS + 1) continue;
+    const isStage2Line = cand.line.length >= 3 || isStage2(cand.line[cand.line.length - 1].d);
+    if (isStage2Line && partnerStage2 >= maxStage2) continue;
     if (!energies.length) energies = cand.es;
     if (usableScore(cand.line[cand.line.length - 1], energies) < 0) continue;
     for (const m of cand.line) add(m.card.id, 2);
+    if (isStage2Line) partnerStage2++;
   }
 
   // --- 先鋒(オープナー)の保証 ---
