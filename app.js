@@ -71,6 +71,8 @@ const els = {
   savedDeckList: $("#saved-deck-list"),
   cardModal: $("#card-modal"),
   diagModal: $("#diag-modal"),
+  metaModal: $("#meta-modal"),
+  metaDeckList: $("#meta-deck-list"),
   diagResults: $("#diag-results"),
   modalImg: $("#modal-img"),
   modalInfo: $("#modal-info"),
@@ -758,6 +760,82 @@ function runSuggest() {
   toast(`「${result.name}」を提案しました ✨ 気に入らないカードは入れ替えてOK`, 3200);
 }
 
+// ---------- 環境デッキギャラリー ----------
+// 環境上位・注目コア。デッキ本体は現在のカードデータから構築エンジンが組む
+// (環境が変わったらこのリストを更新するだけでよい)
+const META_DECKS = [
+  { core: "メガルカリオex", tag: "Tier1", desc: "環境トップの闘エース" },
+  { core: "メガジュカインex", tag: "Tier1", desc: "素早く育つ草の高打点" },
+  { core: "ミライドンex", tag: "Tier1", desc: "雷エネ参照の大技持ち" },
+  { core: "ゾロアークex", tag: "Tier1", desc: "手数で押す環境上位デッキ" },
+  { core: "ミロカロスex", tag: "新弾", desc: "ミラクルデイズの注目株" },
+  { core: "メガディアンシーex", tag: "新弾", desc: "超エネ参照で伸びる大型メガ" },
+  { core: "リザードンex", tag: "定番", desc: "王道の2進化パワーデッキ" },
+  { core: "ギャラドスex", tag: "定番", desc: "大型フィニッシャーの水デッキ" },
+];
+const metaDeckCache = new Map(); // core -> suggestDeck結果
+
+function buildMetaDeck(coreName) {
+  if (metaDeckCache.has(coreName)) return metaDeckCache.get(coreName);
+  const card = state.allCards.find((c) => c.name === coreName);
+  if (!card) return null;
+  const r = suggestDeck({ cards: state.allCards, details: state.details, deck: { [card.id]: 2 } });
+  if (r.error) return null;
+  const entry = { ...r, coreCard: card };
+  metaDeckCache.set(coreName, entry);
+  return entry;
+}
+
+function openMetaDecks() {
+  if (state.details.size < state.allCards.length * 0.5) {
+    toast("カードデータの取り込み中です。少し待ってから試してください");
+    return;
+  }
+  const rows = [];
+  for (const [i, m] of META_DECKS.entries()) {
+    const built = buildMetaDeck(m.core);
+    if (!built) continue;
+    const counts = {};
+    for (const [id, n] of Object.entries(built.deck)) {
+      const c = state.cardById.get(id);
+      if (c) counts[c.name] = (counts[c.name] || 0) + n;
+    }
+    const list = Object.entries(counts).map(([n, c]) => `${c}×${esc(n)}`).join(" / ");
+    const energy = built.energies.map((t) => jaType(t)).join("+");
+    rows.push(
+      `<div class="meta-deck-row">` +
+      `<img src="${esc(thumbUrl(built.coreCard) || "")}" alt="" loading="lazy">` +
+      `<div class="meta-deck-info">` +
+      `<div class="meta-deck-head"><span class="meta-tag meta-tag-${m.tag === "Tier1" ? "t1" : m.tag === "新弾" ? "new" : "std"}">${esc(m.tag)}</span><b>${esc(m.core)}デッキ</b><span class="meta-energy">⚡ ${esc(energy)}</span></div>` +
+      `<div class="meta-deck-desc">${esc(m.desc)}</div>` +
+      `<div class="meta-deck-cards">${list}</div>` +
+      `</div>` +
+      `<button type="button" class="meta-load primary" data-core="${esc(m.core)}">読み込む</button>` +
+      `</div>`
+    );
+  }
+  els.metaDeckList.innerHTML = rows.join("") ||
+    "<p class='hint'>参考デッキを組み立てられませんでした (カードデータ不足)</p>";
+  for (const btn of els.metaDeckList.querySelectorAll(".meta-load")) {
+    btn.addEventListener("click", () => loadMetaDeck(btn.dataset.core));
+  }
+  els.metaModal.classList.remove("hidden");
+}
+
+function loadMetaDeck(coreName) {
+  const built = metaDeckCache.get(coreName);
+  if (!built) return;
+  if (deckTotal() > 0 && !confirm("いまのデッキを置き換えます。よろしいですか？")) return;
+  state.deck = { ...built.deck };
+  state.energies = [...new Set(built.energies.map((t) => TYPE_TO_ENERGY_ID[t]).filter(Boolean))].slice(0, 3);
+  state.deckName = `${coreName}デッキ`;
+  els.deckName.value = state.deckName;
+  for (const id of Object.keys(state.deck)) fetchDetail(id);
+  onDeckChanged();
+  closeModals();
+  toast(`「${coreName}デッキ」を読み込みました 🔥 好きに入れ替えてOK`, 3000);
+}
+
 // ---------- デッキ診断 (模擬対戦) ----------
 const ENERGY_ID_TO_TYPE = {
   grass: "Grass", fire: "Fire", water: "Water", lightning: "Lightning",
@@ -1061,6 +1139,7 @@ function closeModals() {
   els.cardModal.classList.add("hidden");
   els.importModal.classList.add("hidden");
   els.diagModal.classList.add("hidden");
+  els.metaModal.classList.add("hidden");
   state.modalCardId = null;
 }
 
@@ -1084,6 +1163,7 @@ function bindEvents() {
 
   $("#suggest-deck").addEventListener("click", runSuggest);
   $("#diag-deck").addEventListener("click", runDiagnosis);
+  $("#meta-decks-btn").addEventListener("click", openMetaDecks);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
   $("#clear-deck").addEventListener("click", clearDeck);

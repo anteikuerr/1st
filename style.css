@@ -578,6 +578,8 @@ button.danger { color: var(--danger); }
 
   .deck-toggle { display: inline-block; }
   .meta-link { display: none; }
+  /* 環境デッキボタンはモバイルでも表示 (外部リンクだけ隠す) */
+  .meta-btn { display: inline-block; font-size: 12px; padding: 6px 8px; }
 
   .deck-panel {
     position: fixed;
@@ -596,4 +598,56 @@ button.danger { color: var(--danger); }
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     gap: 8px;
   }
+}
+
+/* 環境デッキギャラリー */
+.meta-body { max-width: 560px; }
+.meta-deck-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.meta-deck-row img {
+  width: 56px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.meta-deck-info { flex: 1; min-width: 0; }
+.meta-deck-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.meta-tag {
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.meta-tag-t1 { background: #ffd6d6; color: #a02020; }
+.meta-tag-new { background: #d6ecff; color: #1c5f9e; }
+.meta-tag-std { background: #e8e3d6; color: #6b655a; }
+.meta-energy { font-size: 11px; color: var(--text-dim); }
+.meta-deck-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.meta-deck-cards {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.meta-load {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
 }

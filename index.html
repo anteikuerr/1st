@@ -11,7 +11,8 @@
 <header class="app-header">
   <h1>🎴 ポケポケ デッキビルダー</h1>
   <div class="header-actions">
-    <a class="meta-link" href="https://pocket.limitlesstcg.com/decks?lang=ja" target="_blank" rel="noopener">📊 環境デッキを見る (Limitless)</a>
+    <button id="meta-decks-btn" class="meta-link meta-btn" type="button">🔥 環境デッキ</button>
+    <a class="meta-link" href="https://pocket.limitlesstcg.com/decks?lang=ja" target="_blank" rel="noopener">📊 Limitless</a>
     <button id="deck-toggle" class="deck-toggle" type="button">🃏 デッキ <span id="deck-count-badge">0</span>/20</button>
   </div>
 </header>
@@ -110,6 +111,17 @@
     <div class="modal-actions">
       <button id="import-confirm" type="button" class="primary">読み込む</button>
     </div>
+  </div>
+</div>
+
+<!-- 環境デッキモーダル -->
+<div id="meta-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body meta-body">
+    <button class="modal-close" type="button">✕</button>
+    <h3>🔥 環境デッキ</h3>
+    <p class="hint">環境上位・注目のコアから、このアプリの構築エンジンが組んだ参考デッキです。読み込んでから自由にいじってOK！</p>
+    <div id="meta-deck-list"></div>
   </div>
 </div>
 
