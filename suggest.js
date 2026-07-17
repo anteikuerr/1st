@@ -77,6 +77,10 @@ const SUGGEST_WEIGHTS = {
   // にげるコスト減点は検証の結果不採用 (0): 高いにげコストは高HP/大打点と相関するため
   // 減点すると勝率が下がる (0で51.9% / 5で47.3%)。ルール自体はシミュレータ側で再現済み
   retreatP: 0,
+  // 無色タイプの汎用アタッカー(ケンタロスex等)への減点。デッキ色に沿った相方を
+  // 優先させ、全デッキが同じ無色カードだらけになる"クセ"を止める。実験で 40 なら
+  // ケンタロスex採用が6/10→0/10デッキに減り、かつ勝率は無ペナルティと同値(51.3%)
+  colorlessP: 40,
   thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
   // タイプ相性 (公式ルール「弱点=+20」由来)。環境Tier1デッキ4種から導出した分布
   // (環境が変わったら lab.js theory10 で再導出)。実験では攻防セットで
@@ -322,8 +326,13 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     // 防御相性: 自分の弱点色がメタの攻撃色と重なる分だけ減点
     const myWeak = (e.d.w || [])[0]?.t;
     const hitBy = (metaAtk && myWeak && metaAtk[myWeak]) || 0;
+    // テーマ一貫性: 無色タイプの汎用アタッカー(ケンタロスex等)はどのデッキにも
+    // 入るため放っておくと全デッキが同じ顔になる。デッキ色に属する相方を優先し、
+    // 無色スプラッシュは同色の候補が乏しいときの受け皿に留める(軽い減点)。
+    const isColorlessType = (myType === "Colorless" || myType === "無色");
+    const splashPenalty = isColorlessType ? (weights.colorlessP || 0) : 0;
     return dmgComponent - cost * effCostP + (e.d.h || 0) * weights.hpW -
-      (e.d.rc || 0) * (weights.retreatP || 0) - dualPenalty -
+      (e.d.rc || 0) * (weights.retreatP || 0) - dualPenalty - splashPenalty -
       hitBy * (weights.typeDefP ?? 0) +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
       (/^メガ|^Mega /.test(e.card.name) && /ex$/.test(e.card.name) ? -(weights.megaP || 0) : 0) +
