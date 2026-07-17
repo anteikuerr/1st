@@ -62,9 +62,14 @@ const SUGGEST_WEIGHTS = {
   linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
   megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
   trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
-  // 進化ラインの本数制限 (実戦の定石。コアも数える): 2進化1本 / 1進化2本まで
-  maxStage2Lines: 1,
+  // 進化ラインの本数制限 (実戦の定石。コアも数える)。
+  // 原則は2進化1本/1進化2本だが、デッキテーマに沿う(=デッキ色と一致する)なら
+  // 2進化2本目まで許容 (同色の大型アタッカー2系統は20枚環境では冗長性として強い。
+  // 相方候補は onTheme で既にデッキ色に限定済みなので、2本目は必ずテーマ内)。
+  // ただし進化ライン総数は3本まで (4本以上は狙ったカードが手札に来ず事故る)。
+  maxStage2Lines: 2,
   maxStage1Lines: 2,
+  maxEvoLines: 3,
   // 2色デッキでは指定色コスト1個ごとに減点 (単色デッキには影響しない)。
   // エネルギーゾーンが毎番ランダム1色なので、2色時は無色コストの相方が事故に強い。
   // 実験: 2色コア(タケルライコ/カイリュー系)の平均勝率 14.0%→40.2%
@@ -370,6 +375,7 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   };
   const MAX_S2 = weights.maxStage2Lines ?? 1;
   const MAX_S1 = weights.maxStage1Lines ?? 2;
+  const MAX_EVO = weights.maxEvoLines ?? 3;
   let s2Count = 0;
   let s1Count = 0;
   for (const line of coreLines) {
@@ -377,8 +383,12 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     if (st === 2) s2Count++;
     else if (st === 1) s1Count++;
   }
-  const lineFits = (st) =>
-    (st === 2 && s2Count < MAX_S2) || (st === 1 && s1Count < MAX_S1) || st === 0;
+  // たね単体は無制限。進化ラインは 種別ごとの上限 かつ 総本数の上限 の両方を満たすもの
+  const lineFits = (st) => {
+    if (st === 0) return true;
+    if (s1Count + s2Count >= MAX_EVO) return false;
+    return st === 2 ? s2Count < MAX_S2 : s1Count < MAX_S1;
+  };
   const countLine = (st) => { if (st === 2) s2Count++; else if (st === 1) s1Count++; };
   for (const cand of candidates) {
     if (pokemonCount() >= SIZE - TRAINER_SLOTS) break;
