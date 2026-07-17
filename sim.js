@@ -66,6 +66,13 @@ function parseAttackFx(text) {
   if ((m = text.match(/This attack does (\d+)( more)? damage for each of your Benched/i))) {
     fx.perMyBench = { per: +m[1], more: !!m[2] };
   }
+  // ポケモンのどうぐシナジー (デデンネex/エモンガ: 場のどうぐの数×N / ヒスイドレディア: 装備で+N)
+  if ((m = text.match(/This attack does (\d+) damage for each Pokémon Tool attached to all of your Pokémon/i))) {
+    fx.perTool = +m[1];
+  }
+  if ((m = text.match(/If this Pokémon has a Pokémon Tool attached, this attack does (\d+) more damage/i))) {
+    fx.ifSelfTool = +m[1];
+  }
   // ワザロック (このワザを受けたポケモンは次の番ワザが使えない)
   if (/the Defending Pokémon can'?t attack/i.test(text)) fx.lockAttack = true;
   // 相手のエネルギー破壊
@@ -127,6 +134,8 @@ function attackEv(dmg, fx) {
   if (fx.flipBonus) ev += fx.flipBonus * 0.5;
   if (fx.tailsNothing) ev *= 0.5;
   if (fx.perMyBench) ev = fx.perMyBench.more ? ev + fx.perMyBench.per * 2 : fx.perMyBench.per * 2;
+  if (fx.perTool) ev = Math.max(ev, fx.perTool * 2.5); // どうぐ平均2.5個を想定した打点
+  if (fx.ifSelfTool) ev += fx.ifSelfTool * 0.6;
   if (fx.perOppEnergy) ev += fx.perOppEnergy * 2;
   if (fx.perSelfEnergy) ev += fx.perSelfEnergy.per * 3;
   if (fx.snipeAny) ev = Math.max(ev, fx.snipeAny * 0.9);
@@ -660,6 +669,11 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.perMyBench) {
           dmg = fx.perMyBench.more ? dmg + fx.perMyBench.per * me.bench.length : fx.perMyBench.per * me.bench.length;
         }
+        if (fx.perTool) {
+          // 「40×」表記: 基礎0で、場の自分のポケモン全体のどうぐの数×N
+          dmg = fx.perTool * board(me).filter((x) => x.tool).length;
+        }
+        if (fx.ifSelfTool && me.active.tool) dmg += fx.ifSelfTool;
         if (fx.perOppEnergy) dmg += fx.perOppEnergy * op.active.energy.length;
         if (fx.perSelfEnergy) {
           const n = fx.perSelfEnergy.type

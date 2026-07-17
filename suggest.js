@@ -15,6 +15,11 @@ const SUGGEST_STAPLES = [
   { names: ["Kiawe", "カキ"], count: 2,
     cond: (ctx) => ["アローラガラガラ", "Alolan Marowak", "バクガメス", "Turtonator"].some((n) => ctx.names.has(n)) },
   { names: ["Rare Candy", "ふしぎなアメ"], count: 2, cond: (ctx) => ctx.hasStage2 },
+  // どうぐ多投構築 (デデンネex/エモンガ等、場のどうぐの数だけ打点が伸びるコア):
+  // 盤面全体に載る「どうぐ」を最優先で積む。盤面は最大4匹なので2種4枚で足りる
+  { names: ["Giant Cape", "おおきなマント"], count: 2, cond: (ctx) => ctx.toolSynergy },
+  { names: ["Sitrus Berry", "オボンのみ"], count: 2, cond: (ctx) => ctx.toolSynergy },
+  { names: ["Rocky Helmet", "ゴツゴツメット"], count: 2, cond: (ctx) => ctx.toolSynergy },
   // トラッシュ参照の加速 (デンジ/ほのおのパッチ) は「トラッシュにエネがある」前提が
   // 揃いにくく実験では中立〜逆効果だったため、アメより後ろ (枠が余ったときだけ)
   { names: ["Volkner", "デンジ"], count: 2,
@@ -77,7 +82,7 @@ const SUGGEST_WEIGHTS = {
 function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS }) {
   const SIZE = 20;
   const MAX_PER = 2;
-  const TRAINER_SLOTS = weights.trainerSlots ?? 8; // トレーナーズ用に残す枠の目安
+  let TRAINER_SLOTS = weights.trainerSlots ?? 8; // トレーナーズ用に残す枠の目安
 
   // 打点の採点: thresholds指定時は「確定数」ベース (メタのHP帯を超えた打点だけ加点)
   const dmgScore = (dmg) => {
@@ -272,6 +277,17 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     (m.d.ab || []).some((ab) => /Energy Zone and attach/i.test(ab.e || "")));
   const effCostP = hasAccel ? weights.costP * 0.5 : weights.costP;
 
+  // どうぐシナジー: コアが「場のどうぐの数×N」や「どうぐ装備で+N」の打点を持つなら、
+  // ポケモンのどうぐを多めに積む価値がある (デデンネex/エモンガ/ヒスイドレディア等)。
+  // ユーザーが選んだ実カード(coreIds)と、byNameで評価する進化ライン両方を見る
+  // (同名の別バリアントが評価対象になってもシナジーを取りこぼさないため)
+  const toolFx = (d) => (d?.a || []).some((a) =>
+    /for each Pokémon Tool attached|has a Pokémon Tool attached/i.test(a.e || ""));
+  const hasToolSynergy =
+    coreIds.some((id) => toolFx(details.get(id))) || coreLines.flat().some((m) => toolFx(m.d));
+  // どうぐを盤面(最大4匹)に載せ切れるよう枠を広げる (2種4枚+盤面spreadで最大4個)
+  if (hasToolSynergy) TRAINER_SLOTS = Math.max(TRAINER_SLOTS, 10);
+
   // そのエネルギーで使えるワザだけを評価対象にする
   const usableScore = (e, es) => {
     let dmg = 0;
@@ -366,6 +382,8 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       const d = details.get(id);
       return !isPokemon(d) || isBasic(d);
     }),
+    // コアがどうぐの数に依存する打点を持つか (どうぐ多投構築の条件用)
+    toolSynergy: hasToolSynergy,
   };
   const findTrainer = (names) => {
     for (const c of cards) {
