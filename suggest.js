@@ -62,6 +62,9 @@ const SUGGEST_WEIGHTS = {
   linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
   megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
   trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
+  // 進化ラインの本数制限 (実戦の定石。コアも数える): 2進化1本 / 1進化2本まで
+  maxStage2Lines: 1,
+  maxStage1Lines: 2,
   // 2色デッキでは指定色コスト1個ごとに減点 (単色デッキには影響しない)。
   // エネルギーゾーンが毎番ランダム1色なので、2色時は無色コストの相方が事故に強い。
   // 実験: 2色コア(タケルライコ/カイリュー系)の平均勝率 14.0%→40.2%
@@ -353,19 +356,40 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   }
   candidates.sort((a, b) => b.score - a.score);
 
-  // 一貫性: 相方の2進化ラインは1本まで (コアは除く)。2進化2本は事故率が高い
-  let partnerStage2 = 0;
-  const maxStage2 = weights.maxStage2Lines ?? 1;
+  // 一貫性(進化ラインの本数制限): 進化ポケモンを何種類も入れると狙ったカードが
+  // 手札に来ず進化が止まる。実戦の定石に従い、ラインの本数を制限する ——
+  //   2進化ライン(たね→1進化→2進化): デッキに1種類まで
+  //   1進化ライン(たね→1進化):        デッキに2種類まで
+  //   たね単体:                        制限なし(すぐ使えて事故らない)
+  // コア自身のラインも本数に数える(2進化コアがいれば2進化の枠はもう埋まっている)。
+  const lineStage = (line) => {
+    const final = line[line.length - 1];
+    if (line.length >= 3 || isStage2(final.d)) return 2;
+    if (line.length >= 2) return 1;
+    return 0;
+  };
+  const MAX_S2 = weights.maxStage2Lines ?? 1;
+  const MAX_S1 = weights.maxStage1Lines ?? 2;
+  let s2Count = 0;
+  let s1Count = 0;
+  for (const line of coreLines) {
+    const st = lineStage(line);
+    if (st === 2) s2Count++;
+    else if (st === 1) s1Count++;
+  }
+  const lineFits = (st) =>
+    (st === 2 && s2Count < MAX_S2) || (st === 1 && s1Count < MAX_S1) || st === 0;
+  const countLine = (st) => { if (st === 2) s2Count++; else if (st === 1) s1Count++; };
   for (const cand of candidates) {
     if (pokemonCount() >= SIZE - TRAINER_SLOTS) break;
     if (cand.line.some((m) => hasName(m.card.name))) continue;
     if (pokemonCount() + cand.line.length * 2 > SIZE - TRAINER_SLOTS + 1) continue;
-    const isStage2Line = cand.line.length >= 3 || isStage2(cand.line[cand.line.length - 1].d);
-    if (isStage2Line && partnerStage2 >= maxStage2) continue;
+    const st = lineStage(cand.line);
+    if (!lineFits(st)) continue;
     if (!energies.length) energies = cand.es;
     if (usableScore(cand.line[cand.line.length - 1], energies) < 0) continue;
     for (const m of cand.line) add(m.card.id, 2);
-    if (isStage2Line) partnerStage2++;
+    countLine(st);
   }
 
   // --- 先鋒(オープナー)の保証 ---
@@ -426,13 +450,17 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     add(c.id, staple.count);
   }
 
-  // 足りなければ相方ポケモンを追加投入
+  // 足りなければ相方ポケモンを追加投入 (ここでも進化ラインの本数制限を守り、
+  // 埋めるならまず たね単体 を優先する。進化ラインの乱立で事故らせない)
   if (total() < SIZE) {
     for (const cand of candidates) {
       if (total() >= SIZE) break;
       if (cand.line.some((m) => hasName(m.card.name))) continue;
+      const st = lineStage(cand.line);
+      if (!lineFits(st)) continue;
       if (energies.length && usableScore(cand.line[cand.line.length - 1], energies) < 0) continue;
       for (const m of cand.line) add(m.card.id, 2);
+      countLine(st);
     }
   }
   // 最終フォールバック (小さいデータセットでも必ず20枚にする)
