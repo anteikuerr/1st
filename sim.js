@@ -356,7 +356,6 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       if (!c.trainer) continue;
       const t = c.trainer;
       if (c.trainerType === "Supporter" && me.supporterUsed) continue;
-      const handBefore = me.hand.length;
       if (t === "Poké Ball" || t === "モンスターボール") {
         const bi = me.deck.findIndex((x) => x.basic);
         if (bi >= 0) me.hand.push(me.deck.splice(bi, 1)[0]);
@@ -364,6 +363,58 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       } else if (t === "Professor's Research" || t === "博士の研究") {
         me.hand.push(...me.deck.splice(0, 2));
         me.hand.splice(i, 1);
+      } else if (t === "Iono" || t === "ナンジャモ") {
+        // 手札を山札に戻して同数引き直す (詰まった手札のリフレッシュ)。
+        // 手札(このカード除く)が2枚以下=手詰まりのときだけ使う
+        if (me.hand.length - 1 <= 2 && me.deck.length) {
+          me.hand.splice(i, 1);                 // ナンジャモを使用
+          const back = me.hand.splice(0);       // 残り手札を山札へ
+          me.deck.push(...back);
+          me.deck = shuffle(me.deck);
+          me.hand.push(...me.deck.splice(0, back.length));
+          me.supporterUsed = true;
+          break;                                 // 手札が入れ替わったので再スキャン(次の番)
+        }
+      } else if (t === "Juliana" || t === "アオイ") {
+        // 山札から2進化ポケモンをランダムに手札へ (2進化デッキの安定札)
+        const idxs = me.deck.map((x, k) => (x.stage2 ? k : -1)).filter((k) => k >= 0);
+        if (idxs.length) {
+          me.hand.push(me.deck.splice(idxs[Math.floor(rng() * idxs.length)], 1)[0]);
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Serena" || t === "セレナ") {
+        // 山札からメガシンカポケモンexをランダムに手札へ
+        const idxs = me.deck.map((x, k) => (x.mega ? k : -1)).filter((k) => k >= 0);
+        if (idxs.length) {
+          me.hand.push(me.deck.splice(idxs[Math.floor(rng() * idxs.length)], 1)[0]);
+          me.hand.splice(i, 1);
+        }
+      } else if (t === "Lisia" || t === "ルチア") {
+        // 山札からHP50以下のたねポケモンを2枚ランダムに手札へ
+        let got = 0;
+        for (let k = 0; k < 2; k++) {
+          const idxs = me.deck.map((x, j) => (x.basic && x.hp <= 50 ? j : -1)).filter((j) => j >= 0);
+          if (!idxs.length) break;
+          me.hand.push(me.deck.splice(idxs[Math.floor(rng() * idxs.length)], 1)[0]);
+          got++;
+        }
+        if (got) me.hand.splice(i, 1);
+      } else if (t === "Pokémon Communication" || t === "ポケモン通信") {
+        // 手札のポケモン1枚を山札のランダムなポケモンと入れ替える (進化先を掘る)。
+        // 場に出ているたねの進化先が山札にあり、手札に余剰ポケモンがあるときだけ
+        const needEvo = board(me).some((mon) =>
+          me.deck.some((x) => x.evolvesFrom === mon.name));
+        const spareJ = me.hand.findIndex((x, j) => j !== i && x.pokemon);
+        const deckPokeIdxs = me.deck.map((x, k) => (x.pokemon ? k : -1)).filter((k) => k >= 0);
+        if (needEvo && spareJ >= 0 && deckPokeIdxs.length) {
+          const pulled = me.deck.splice(deckPokeIdxs[Math.floor(rng() * deckPokeIdxs.length)], 1)[0];
+          const spare = me.hand.splice(spareJ, 1)[0];
+          me.deck.push(spare);
+          me.hand.push(pulled);
+          // splice(spareJ) が i より前ならインデックスがずれるので取り直して除去
+          const selfIdx = me.hand.indexOf(c);
+          if (selfIdx >= 0) me.hand.splice(selfIdx, 1);
+        }
       } else if (t === "Rare Candy" || t === "ふしぎなアメ") {
         me.candy++;
         me.hand.splice(i, 1);
@@ -523,7 +574,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       } else {
         me.hand.splice(i, 1);
       }
-      if (me.hand.length < handBefore && c.trainerType === "Supporter") me.supporterUsed = true;
+      // サポートを実際に使った(手札から離れた)ら1ターン1枚の枠を消費。
+      // ドロー/サーチ系は手札が増えるので、枚数差ではなくカードの消失で判定する
+      if (c.trainerType === "Supporter" && me.hand.indexOf(c) < 0) me.supporterUsed = true;
     }
 
     // たねをベンチへ

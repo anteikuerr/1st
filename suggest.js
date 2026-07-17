@@ -15,6 +15,9 @@ const SUGGEST_STAPLES = [
   { names: ["Kiawe", "カキ"], count: 2,
     cond: (ctx) => ["アローラガラガラ", "Alolan Marowak", "バクガメス", "Turtonator"].some((n) => ctx.names.has(n)) },
   { names: ["Rare Candy", "ふしぎなアメ"], count: 2, cond: (ctx) => ctx.hasStage2 },
+  // ドロー/サーチ (一貫性): 2進化デッキはアオイで2進化を、メガデッキはセレナでメガを掘る
+  { names: ["Juliana", "アオイ"], count: 2, cond: (ctx) => ctx.hasStage2 },
+  { names: ["Serena", "セレナ"], count: 2, cond: (ctx) => ctx.hasMega },
   // どうぐ多投構築 (デデンネex/エモンガ等、場のどうぐの数だけ打点が伸びるコア):
   // 盤面全体に載る「どうぐ」を最優先で積む。盤面は最大4匹なので2種4枚で足りる
   { names: ["Giant Cape", "おおきなマント"], count: 2, cond: (ctx) => ctx.toolSynergy },
@@ -319,11 +322,28 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
       ((e.d.ab || []).length ? (weights.abB || 0) : 0);
   };
 
+  // --- デッキテーマの一貫性 ---
+  // 相方はデッキの色に合っているべき。無色コストで撃てるからといって、別色の
+  // タイプを持つポケモン(超デッキに草のワタッコex等)を入れると、弱点も進化補助も
+  // 噛み合わずデッキの軸がぼやける。相方は「デッキ色と一致」か「無色タイプ」に限る。
+  // (ドラゴン等の非エネルギー色は2色コストを要求するので usableScore 側で自然に除外される)
+  const ENERGY_COLORS = new Set([
+    "Grass", "Fire", "Water", "Lightning", "Psychic", "Fighting", "Darkness", "Metal",
+    "草", "炎", "水", "雷", "超", "闘", "悪", "鋼",
+  ]);
+  const onTheme = (d) => {
+    if (!energies.length) return true;      // 色未確定なら制限しない
+    const t = (d.t || [])[0];
+    if (!t || !ENERGY_COLORS.has(t)) return true; // 無色・ドラゴン等は色を選ばない
+    return energies.includes(t);            // 色付きはデッキ色と一致必須
+  };
+
   const candidates = [];
   for (const e of byName.values()) {
     if (!isBasic(e.d)) continue;
     const line = lineDown(e);
     const final = line[line.length - 1];
+    if (!onTheme(final.d)) continue;        // テーマ外の別色ラインは相方にしない
     const es = energies.length
       ? energies
       : [...new Set((final.d.a || []).flatMap((a) => (a.c || []).filter(nonColorless)))].slice(0, 2);
@@ -384,6 +404,11 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     }),
     // コアがどうぐの数に依存する打点を持つか (どうぐ多投構築の条件用)
     toolSynergy: hasToolSynergy,
+    // メガシンカexを含むか (セレナのサーチ条件用)
+    hasMega: Object.keys(newDeck).some((id) => {
+      const c = cardById.get(id);
+      return c && /ex$/.test(c.name) && (/^メガ/.test(c.name) || /^Mega /.test(c.enName || ""));
+    }),
   };
   const findTrainer = (names) => {
     for (const c of cards) {
