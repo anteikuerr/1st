@@ -93,6 +93,8 @@ function parseAbilityFx(text) {
   const fx = {};
   let m;
   if ((m = text.match(/This Pokémon takes [−–-](\d+) damage from attacks/i))) fx.reduce = +m[1];
+  // コイン依存の軽減 (「ダメージを受けたらコインを投げ、オモテなら−N」)
+  if ((m = text.match(/If any damage is done to this Pokémon by attacks, flip a coin\. If heads, this Pokémon takes [−–-](\d+) damage from that attack/i))) fx.reduceFlip = +m[1];
   if ((m = text.match(/gets \+(\d+) HP/i))) fx.hpPlus = +m[1];
   if ((m = text.match(/Attacks used by your (?:\{(\w)\} )?Pokémon(?: and \{\w\} Pokémon)? do \+(\d+) damage to your opponent'?s Active Pokémon/i))) {
     fx.teamBoost = { type: m[1] ? SIM_ENERGY_LETTER[m[1]] : null, amount: +m[2] };
@@ -290,6 +292,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
   const applyReduction = (def, dmg, turnNo) => {
     let out = dmg;
     if (def.abFx?.reduce) out -= def.abFx.reduce;
+    if (def.abFx?.reduceFlip && rng() < 0.5) out -= def.abFx.reduceFlip; // ヒスイヌメルゴン等
     if (def.shieldUntil >= turnNo) out -= def.shieldValue;
     return Math.max(0, out);
   };

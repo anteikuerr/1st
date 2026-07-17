@@ -981,6 +981,40 @@ Object.assign(EFFECT_SENTENCE_JA, {
   "Look at the top 3 cards of your deck.": "自分の山札を上から3枚見る。",
 });
 
+// B2b〜B3b の新弾トレーナー・特性 (カード画像から転記・和訳)
+Object.assign(EFFECT_SENTENCE_JA, {
+  "The Stage 2 Pokémon this card is attached to has no Retreat Cost.": "このカードをつけた2進化ポケモンのにげるコストは0になる。",
+  "Your opponent discards cards from their hand until they have 4 cards in their hand.": "相手は手札が4枚になるまで手札をトラッシュする。",
+  "During this turn, if your opponent's Active Pokémon is Knocked Out by damage from an attack used by your Haxorus, you get 1 more point.": "この番、自分のオノノクスのワザのダメージで相手のバトルポケモンがきぜつしたら、ポイントを1つ多く獲得する。",
+  "Draw a card for each Mega Evolution Pokémon ex in play (both yours and your opponent's).": "場のメガシンカポケモンex（お互い）の数ぶん、自分の山札を引く。",
+  "At the end of each player's turn, that player draws cards until they have 3 cards in their hand.": "各プレイヤーの番の終わりに、そのプレイヤーは手札が3枚になるまで山札を引く。",
+  "Discard a Pokémon Tool card from a Pokémon (yours or your opponent's), or discard a Stadium card in play.": "ポケモン（自分か相手）についているポケモンのどうぐを1枚トラッシュするか、場のスタジアムを1枚トラッシュする。",
+  "If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, draw cards until you have 5 cards in your hand.": "このカードをつけたポケモンが相手のワザのダメージできぜつしたとき、手札が5枚になるまで山札を引く。",
+  "During this turn, attacks used by your {F} Pokémon do +30 damage to your opponent's Active Pokémon ex.": "この番、自分の闘ポケモンが使うワザの、相手のバトルポケモンexへのダメージを+30。",
+  "Put a random Stadium card from your deck into your hand.": "自分の山札からランダムなスタジアムを1枚、手札に加える。",
+  "During your opponent's next turn, all of your Watchog and Stoutland take −100 damage from attacks from your opponent's Pokémon ex.": "相手の次の番、自分のミルホッグとムーランド全員が相手のポケモンexから受けるワザのダメージを−100。",
+  "Put 1 of your {W} Pokémon in play, except any Pokémon ex, into your hand.": "場の自分の水ポケモン（ポケモンexをのぞく）1匹を手札にもどす。",
+  "Once during each player's turn, that player may put a random Basic {G} Pokémon from their deck into their hand.": "各プレイヤーの番に1回、そのプレイヤーは山札からランダムなたねの草ポケモンを1枚、手札に加えてよい。",
+  "Attacks used by each {F} Pokémon in play (both yours and your opponent's) do +20 damage to the opponent's Active Pokémon ex.": "場の闘ポケモン全員（お互い）が使うワザの、相手のバトルポケモンexへのダメージを+20。",
+  "When applying the opponent's Active Pokémon's Weakness to damage from attacks used by Pokémon in play (both yours and your opponent's) that aren't Mega Evolution Pokémon ex, apply Weakness as ×2.": "メガシンカポケモンex以外のポケモン（お互い）のワザによる、相手のバトルポケモンの弱点計算を×2にする。",
+  "The Ancient Pokémon this card is attached to gets +40 HP.": "このカードをつけたコライドンなど古代ポケモンの最大HPを+40。",
+  "Attacks used by the Future Pokémon this card is attached to do +20 damage to your opponent's Active Pokémon.": "このカードをつけた未来ポケモンが使うワザの、相手のバトルポケモンへのダメージを+20。",
+  "Put a random Stage 2 Pokémon from your deck into your hand.": "自分の山札からランダムな2進化ポケモンを1枚、手札に加える。",
+  "Attach 3 different types of Energy from your discard pile to your Ancient Pokémon in any way you like.": "自分のトラッシュから3種類のエネルギーを、自分の古代ポケモンに好きなようにつける。",
+  "Shuffle 1 of your Future Pokémon in play into your deck.": "場の自分の未来ポケモン1匹を山札にもどして切る。",
+  "Once during each player's turn, that player may shuffle a Basic Pokémon from their hand into their deck. If they do, they draw a card.": "各プレイヤーの番に1回、そのプレイヤーは手札のたねポケモンを1枚、山札にもどして切ってよい。そうしたら山札を1枚引く。",
+  "The Retreat Cost of the Basic Pokémon this card is attached to is 1 less.": "このカードをつけたたねポケモンのにげるコストを1個少なくする。",
+  "The Stage 1 Pokémon this card is attached to gets +30 HP.": "このカードをつけた1進化ポケモンの最大HPを+30。",
+  "Return all Pokémon Tools attached to each Pokémon (both yours and your opponent's) to their owner's hand.": "ポケモン全員（お互い）についているポケモンのどうぐを、すべて持ち主の手札にもどす。",
+  "Look at the top 4 cards of your deck. Put all Pokémon you find there that have the Puppy Pile attack into your hand. Shuffle the other cards back into your deck.": "自分の山札を上から4枚見て、その中の「パピイパイル」を持つポケモンをすべて手札に加える。残りは山札にもどして切る。",
+  "Choose 1 of your {W} Pokémon in play with a maximum HP of 50 or less. Put a random {W} Pokémon from your deck that evolves from that Pokémon onto that Pokémon to evolve it.": "場の自分の最大HP50以下の水ポケモン1匹を選ぶ。山札から、そのポケモンから進化するランダムな水ポケモンをのせて進化させる。",
+  "Once during each player's turn, that player may choose a card in their hand and switch it with a random Pokémon Tool card in their deck.": "各プレイヤーの番に1回、そのプレイヤーは手札のカード1枚を、山札のランダムなポケモンのどうぐと入れ替えてよい。",
+  "As long as this Pokémon is in the Active Spot, your opponent can't play any Stadium cards from their hand.": "このポケモンがバトル場にいるかぎり、相手は手札からスタジアムを出せない。",
+  "At the end of your opponent's turn, if this Pokémon is in the Active Spot, put a random card from your deck that evolves from this Pokémon onto this Pokémon to evolve it.": "相手の番の終わりに、このポケモンがバトル場にいるなら、山札からこのポケモンから進化するランダムなカードをのせて進化させる。",
+  "Once during your turn, if this Pokémon has a Pokémon Tool attached, you may heal 30 damage from 1 of your Pokémon.": "自分の番に1回、このポケモンにポケモンのどうぐがついているなら、自分のポケモン1匹のHPを30回復してよい。",
+  "Basic Pokémon in play (both yours and your opponent's) have no Abilities.": "場のたねポケモン全員（お互い）の特性はなくなる。",
+});
+
 // B3b/P-B等の新弾ワザ・特性の効果文
 Object.assign(EFFECT_SENTENCE_JA, {
   "During your opponent's next turn, attacks used by the Defending Pokémon do -20 damage.": "相手の次の番、このワザを受けたポケモンが使うワザのダメージを−20。",

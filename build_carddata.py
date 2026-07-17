@@ -64,6 +64,8 @@ _ENERGY_LIST_RE = re.compile(
 def normalize_effect(text):
     if not text:
         return text
+    # ノーブレークスペース等を通常スペースに正規化 (翻訳辞書の完全一致キー照合のため)
+    text = text.replace(" ", " ").replace(" ", " ").replace(" ", " ")
     out = _ENERGY_WORD_RE.sub(lambda m: "{" + ENERGY_TOKEN[m.group(1)] + "}", text)
     prev = None
     while prev != out:
@@ -224,6 +226,62 @@ TRAINER_TYPE_FALLBACK = {
     "Small Balloon": "Tool", "Elegant Cape": "Tool",
     "Elesa": "Supporter", "Puppy-Loving Girl": "Supporter", "Wallace": "Supporter",
     "Kid's Room": "Stadium",
+}
+
+# 上流ソースに効果文がまだ無い新弾トレーナーの効果文 (カード画像から直接転記)。
+# 効果テキストは公式カードの英語表記。上流(tcgdex)が追いつけば不要になる
+TRAINER_EFFECT_FALLBACK = {
+    # B2a
+    "Big Air Balloon": "The Stage 2 Pokémon this card is attached to has no Retreat Cost.",
+    # B2b メガシャイン
+    "Nasty Notice": "Your opponent discards cards from their hand until they have 4 cards in their hand.",
+    "Maintenance": "Shuffle 2 cards from your hand into your deck. Draw a card. If you can't shuffle in 2 cards, you can't use this card.",
+    "Iris": "During this turn, if your opponent's Active Pokémon is Knocked Out by damage from an attack used by your Haxorus, you get 1 more point.",
+    "Calem": "Draw a card for each Mega Evolution Pokémon ex in play (both yours and your opponent's).",
+    "Hiking Trail": "At the end of each player's turn, that player draws cards until they have 3 cards in their hand.",
+    # B3 波動ビート
+    "Field Blower": "Discard a Pokémon Tool card from a Pokémon (yours or your opponent's), or discard a Stadium card in play.",
+    "Lucky Egg": "If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, draw cards until you have 5 cards in your hand.",
+    "Korrina": "During this turn, attacks used by your {F} Pokémon do +30 damage to your opponent's Active Pokémon ex.",
+    "Cabbie": "Put a random Stadium card from your deck into your hand.",
+    "Cheren": "During your opponent's next turn, all of your Watchog and Stoutland take −100 damage from attacks from your opponent's Pokémon ex.",
+    "Parasol Lady": "Put 1 of your {W} Pokémon in play, except any Pokémon ex, into your hand.",
+    "Fragrant Forest": "Once during each player's turn, that player may put a random Basic {G} Pokémon from their deck into their hand.",
+    "Arena of Antiquity": "Attacks used by each {F} Pokémon in play (both yours and your opponent's) do +20 damage to the opponent's Active Pokémon ex.",
+    "Bounded Field": "When applying the opponent's Active Pokémon's Weakness to damage from attacks used by Pokémon in play (both yours and your opponent's) that aren't Mega Evolution Pokémon ex, apply Weakness as ×2.",
+    # B3a 進撃パラドックス
+    "Ancient Booster Energy Capsule": "The Ancient Pokémon this card is attached to gets +40 HP.",
+    "Future Booster Energy Capsule": "Attacks used by the Future Pokémon this card is attached to do +20 damage to your opponent's Active Pokémon.",
+    "Juliana": "Put a random Stage 2 Pokémon from your deck into your hand.",
+    "Professor Sada": "Attach 3 different types of Energy from your discard pile to your Ancient Pokémon in any way you like.",
+    "Professor Turo": "Shuffle 1 of your Future Pokémon in play into your deck.",
+    "Area Zero": "Once during each player's turn, that player may shuffle a Basic Pokémon from their hand into their deck. If they do, they draw a card.",
+    # B3b ミラクルデイズ
+    "Small Balloon": "The Retreat Cost of the Basic Pokémon this card is attached to is 1 less.",
+    "Elegant Cape": "The Stage 1 Pokémon this card is attached to gets +30 HP.",
+    "Elesa": "Return all Pokémon Tools attached to each Pokémon (both yours and your opponent's) to their owner's hand.",
+    "Puppy-Loving Girl": "Look at the top 4 cards of your deck. Put all Pokémon you find there that have the Puppy Pile attack into your hand. Shuffle the other cards back into your deck.",
+    "Wallace": "Choose 1 of your {W} Pokémon in play with a maximum HP of 50 or less. Put a random {W} Pokémon from your deck that evolves from that Pokémon onto that Pokémon to evolve it.",
+    "Kid's Room": "Once during each player's turn, that player may choose a card in their hand and switch it with a random Pokémon Tool card in their deck.",
+}
+
+# 上流ソースに特性がまだ無いカードの特性 (カード画像から直接転記)。種族名で照合
+POKEMON_ABILITY_FALLBACK = {
+    "Caterpie": {"n": "Quick Growth", "e": "At the end of your opponent's turn, if this Pokémon is in the Active Spot, put a random card from your deck that evolves from this Pokémon onto this Pokémon to evolve it."},
+    "Milotic ex": {"n": "Aqua Charge", "e": "Once during your turn, you may take a {W} Energy from your Energy Zone and attach it to this Pokémon."},
+    "Sylveon": {"n": "Soothing Ribbon", "e": "Once during your turn, if this Pokémon has a Pokémon Tool attached, you may heal 30 damage from 1 of your Pokémon."},
+    "Hisuian Goodra": {"n": "Securely Sheltered", "e": "If any damage is done to this Pokémon by attacks, flip a coin. If heads, this Pokémon takes −80 damage from that attack."},
+    "Snorlax": {"n": "Massive Body", "e": "As long as this Pokémon is in the Active Spot, your opponent can't play any Stadium cards from their hand."},
+    "Ursaluna": {"n": "Guts", "e": "If this Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, this Pokémon is not Knocked Out, and its remaining HP becomes 10."},
+    "Furfrou": {"n": "Fur Coat", "e": "This Pokémon takes −20 damage from attacks."},
+}
+
+# CSVでコスト/名前が欠落・誤りだったワザの、カード画像に基づく上書き (種族名で照合)。
+# エネルギー色はデッキ構築(色理論)に直結するため、推定ではなく実カードに合わせる
+POKEMON_ATTACK_FIX = {
+    # 推定で無色2になっていたが実際は雷2。ポケモンのどうぐシナジーの雷アタッカー
+    "Dedenne ex": [{"c": ["Lightning", "Lightning"], "n": "Dede-Circuit", "d": "40x",
+                    "e": "This attack does 40 damage for each Pokémon Tool attached to all of your Pokémon."}],
 }
 
 # 上流ソースに種族情報がまだ無い新登場種族の進化情報 (TCG本家の慣例に従う)。
@@ -569,10 +627,40 @@ def main():
             if c["name"] in eff_by_name:
                 d["e"] = eff_by_name[c["name"]]
                 n_reprint += 1
+            elif c["name"] in TRAINER_EFFECT_FALLBACK:
+                d["e"] = normalize_effect(TRAINER_EFFECT_FALLBACK[c["name"]])
+                n_reprint += 1
             else:
                 still_missing.append(c["name"])
     print(f"再録補完: トレーナー効果 {n_reprint}件 / "
           f"効果未収録 {len(still_missing)}枚 {sorted(set(still_missing))}")
+
+    # --- 7. ポケモンの特性・ワザ補完 (カード画像から転記。種族名で照合) ---
+    # exやメガも基礎種族名は同じ特性を持つため、" ex"を残した名前で照合する
+    n_ab = n_atkfix = 0
+    ab_missing = list(POKEMON_ABILITY_FALLBACK)
+    for c in cards:
+        d = details.get(c["id"])
+        if not d or d.get("c") != "Pokemon":
+            continue
+        name = c["name"]
+        if name in POKEMON_ABILITY_FALLBACK and not d.get("ab"):
+            ab = POKEMON_ABILITY_FALLBACK[name]
+            d["ab"] = [{"n": ab["n"], "e": normalize_effect(ab["e"])}]
+            n_ab += 1
+            if name in ab_missing:
+                ab_missing.remove(name)
+        if name in POKEMON_ATTACK_FIX:
+            fixed = []
+            for a in POKEMON_ATTACK_FIX[name]:
+                a = dict(a)
+                if a.get("e"):
+                    a["e"] = normalize_effect(a["e"])
+                fixed.append(a)
+            d["a"] = fixed
+            n_atkfix += 1
+    print(f"画像転記: 特性 {n_ab}件 / ワザ修正 {n_atkfix}件"
+          + (f" / 特性未適用 {ab_missing}" if ab_missing else ""))
 
     # chase拡張名で上書き (b3bなどの正式名)
     for sid, name in list(set_names.items()):
