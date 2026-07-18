@@ -21,7 +21,11 @@
   <!-- カードブラウザ -->
   <section class="browser">
     <div class="filters">
-      <input id="search" type="search" placeholder="カード名でさがす（ひらがなOK）🔍" autocomplete="off">
+      <div class="filter-search">
+        <input id="search" type="search" placeholder="カード名でさがす（ひらがなOK）🔍" autocomplete="off">
+        <button id="reload-btn" type="button" title="カードデータを再取得">🔄</button>
+      </div>
+      <div class="filter-selects">
       <select id="set-filter">
         <option value="">すべての拡張パック</option>
       </select>
@@ -34,12 +38,18 @@
       <select id="rarity-filter" class="detail-filter">
         <option value="">レアリティ</option>
       </select>
-      <select id="sort-filter">
+      <select id="sort-filter" title="並び替え">
         <option value="">収録順</option>
-        <option value="hp">HPが高い順</option>
+        <option value="hp">HP高い順</option>
+        <option value="hpAsc">HP低い順</option>
+        <option value="dmg">最大打点順</option>
+        <option value="stage">進化段階順</option>
+        <option value="type">タイプ順</option>
+        <option value="rarity">レアリティ順</option>
+        <option value="retreat">にげる軽い順</option>
         <option value="name">名前順</option>
       </select>
-      <button id="reload-btn" type="button" title="カードデータを再取得">🔄</button>
+      </div>
     </div>
     <div id="type-chips" class="type-chips"></div>
     <div class="status-row">

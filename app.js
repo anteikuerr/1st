@@ -402,11 +402,20 @@ function applyFilter() {
   });
 
   const sort = els.sortFilter.value;
-  if (sort === "hp") {
-    state.filtered.sort((a, b) => (state.details.get(b.id)?.h || 0) - (state.details.get(a.id)?.h || 0));
-  } else if (sort === "name") {
-    state.filtered.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  }
+  const dOf = (c) => state.details.get(c.id) || {};
+  const maxDmg = (c) => Math.max(0, ...((dOf(c).a || []).map((a) => { const m = String(a.d ?? "").match(/\d+/); return m ? +m[0] : 0; })));
+  const stageRank = (c) => { const s = dOf(c).s || ""; return /2/.test(s) ? 2 : /1|Stage 1/.test(s) ? 1 : dOf(c).c === "Pokemon" || dOf(c).c === "ポケモン" ? 0 : 3; };
+  const SORTS = {
+    hp: (a, b) => (dOf(b).h || 0) - (dOf(a).h || 0),
+    hpAsc: (a, b) => (dOf(a).h || 999) - (dOf(b).h || 999),
+    name: (a, b) => a.name.localeCompare(b.name, "ja"),
+    dmg: (a, b) => maxDmg(b) - maxDmg(a),
+    rarity: (a, b) => jaRarity(dOf(a).r || "").localeCompare(jaRarity(dOf(b).r || ""), "ja"),
+    type: (a, b) => ((dOf(a).t || [])[0] || "zz").localeCompare((dOf(b).t || [])[0] || "zz"),
+    stage: (a, b) => stageRank(a) - stageRank(b) || (dOf(b).h || 0) - (dOf(a).h || 0),
+    retreat: (a, b) => (dOf(a).rc ?? 9) - (dOf(b).rc ?? 9),
+  };
+  if (SORTS[sort]) state.filtered.sort(SORTS[sort]);
 
   els.resultCount.textContent = state.allCards.length
     ? `${state.filtered.length} / ${state.allCards.length}枚`
