@@ -95,18 +95,57 @@ const SUGGEST_WEIGHTS = {
   // 優先させ、全デッキが同じ無色カードだらけになる"クセ"を止める。実験で 40 なら
   // ケンタロスex採用が6/10→0/10デッキに減り、かつ勝率は無ペナルティと同値(51.3%)
   colorlessP: 40,
-  thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // メタHP帯
-  // タイプ相性 (公式ルール「弱点=+20」由来)。環境Tier1デッキ4種から導出した分布
-  // (環境が変わったら lab.js theory10 で再導出)。実験では攻防セットで
-  // リザードンex+7.4pt/ダークライex+2.9pt (退化はギャラドスex-3.4ptのみ)
-  typeDefP: 40, // 自分の弱点がメタの攻撃色と重なるときの減点係数
-  meta: {
-    // メタの攻撃色シェア (アタッカーのタイプ分布): これを弱点に持つ相方を避ける
-    atk: { Grass: 0.296, Fighting: 0.222, Darkness: 0.222, Colorless: 0.185, Lightning: 0.074 },
-    // メタの弱点色シェア: この色で殴れる相方は+20打点の期待値で確定数を評価
-    weak: { Fighting: 0.37, Fire: 0.222, Grass: 0.185, Psychic: 0.148, Lightning: 0.074 },
-  },
+  thresholds: [[50, 20], [80, 24], [120, 24], [150, 20], [190, 16]], // HP帯 (確定数採点)
+  // 【方針】環境(メタ)への相性最適化はしない。特定の流行デッキに合わせるより、
+  // 「毎試合きちんと自分の動きができる=一貫性」を優先する。よってタイプ相性
+  // (メタの弱点/攻撃色に対する加減点)は無効化 (typeDefP=0 / meta=null)。
+  // 一貫性は 単色優先・進化ライン最小・たね確保(opener)・ドロー厚めで担保する。
+  typeDefP: 0,
+  meta: null,
+  opener: true, // 1エネで殴り出せるたね先鋒を必ず1種確保する (初動の一貫性)
 };
+
+// 勝ち筋の推定: コアのワザ・特性の効果テキストから「何をして勝つデッキか」を分類。
+// dList = コア(と進化ライン)の details 配列。構築の軸と、ユーザーへの説明に使う。
+function inferWinCondition(dList) {
+  const atkTexts = [], abTexts = [];
+  let maxDmg = 0, hasEx = false, cheapHitter = false, big2Cost = false;
+  for (const d of dList) {
+    if (!d) continue;
+    for (const a of d.a || []) {
+      atkTexts.push(a.e || "");
+      const dm = (() => { const m = String(a.d ?? "").match(/\d+/); return m ? +m[0] : 0; })();
+      if (dm > maxDmg) maxDmg = dm;
+      const cost = (a.c || []).length;
+      if (cost <= 1 && dm >= 20) cheapHitter = true;
+      if (cost >= 2 && cost <= 3 && dm >= 90) big2Cost = true;
+    }
+    for (const ab of d.ab || []) abTexts.push(ab.e || "");
+  }
+  const all = atkTexts.concat(abTexts).join(" ");
+  hasEx = dList.some((d) => false); // exはカード名側で判定するためここでは使わない
+  const has = (re) => re.test(all);
+  const T = (key, label, plan) => ({ key, label, plan });
+
+  if (has(/for each Pokémon Tool|has a Pokémon Tool attached/i))
+    return T("tool", "どうぐシナジー", "ポケモンのどうぐを並べ、その数で打点を伸ばして殴る");
+  if (has(/Energy Zone and attach (?:it|them)|Take \d+ \{\w\} Energy from your Energy Zone/i) ||
+      abTexts.some((e) => /Energy Zone and attach/i.test(e)))
+    return T("ramp", "エネ加速ランプ", "特性やワザで加速し、重いエースを早く動かして高打点で轢く");
+  if (has(/damage to (?:each of )?your opponent'?s Benched|damage to 1 of your opponent'?s Pokémon/i))
+    return T("snipe", "ベンチ狙撃", "相手のベンチを直接叩き、育つ前のアタッカーを削り切る");
+  if (has(/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i))
+    return T("status", "状態異常ロック", "ねむり・どく・マヒ等で相手の動きを止めつつ削る");
+  if (has(/Discard (?:a|\d+|an) (?:random )?(?:\{\w\} )?Energy from your opponent|can'?t attack during your opponent/i))
+    return T("disrupt", "妨害コントロール", "相手のエネルギーや行動を縛り、テンポ差で勝つ");
+  if (maxDmg >= 140)
+    return T("onehit", "大型一撃", "大型アタッカーの一撃で相手exを確定数で取る");
+  if (cheapHitter)
+    return T("aggro", "アグロ", "軽いワザで先手を取り、テンポで押し切る");
+  if (big2Cost)
+    return T("midrange", "中速ビートダウン", "2〜3エネの効率打点で1匹ずつ確実に倒す");
+  return T("beatdown", "ビートダウン", "エースの打点で正面から殴り合う");
+}
 
 function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS }) {
   const SIZE = 20;
@@ -521,5 +560,8 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   if (total() !== SIZE) return { error: "デッキを組み立てられませんでした (カードデータ不足)" };
 
   const coreLabel = corePokemon[0]?.card.name || coreNames[0] || "おまかせ";
-  return { deck: newDeck, energies, name: `${coreLabel}デッキ` };
+  // 勝ち筋を推定 (コアの進化ライン全体のテキストから)
+  const coreDList = coreLines.length ? coreLines.flat().map((m) => m.d) : corePokemon.map((e) => e.d);
+  const winCondition = inferWinCondition(coreDList);
+  return { deck: newDeck, energies, name: `${coreLabel}デッキ`, winCondition };
 }

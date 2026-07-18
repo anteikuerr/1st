@@ -759,7 +759,9 @@ function runSuggest() {
   els.deckName.value = result.name;
   for (const id of Object.keys(result.deck)) fetchDetail(id);
   onDeckChanged();
-  toast(`「${result.name}」を提案しました ✨ 気に入らないカードは入れ替えてOK`, 3200);
+  const wc = result.winCondition;
+  toast(`「${result.name}」完成 ✨ 勝ち筋: ${wc ? wc.label : "ビートダウン"}` +
+    (wc ? `（${wc.plan}）` : ""), 4200);
 }
 
 // ---------- 環境デッキギャラリー ----------
