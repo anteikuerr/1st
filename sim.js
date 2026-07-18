@@ -123,6 +123,9 @@ function parseAbilityFx(text) {
   if (!text) return null;
   const fx = {};
   let m;
+  // 進化時誘発のワザ文は末尾で onEvolve として拾う。汎用の「毎ターン加速/回復/狙撃」
+  // 正規表現が同じ文を二重に拾わないよう、進化時誘発かどうかを先に判定しておく
+  const isOnEvolve = /when you play this Pokémon from your hand to evolve/i.test(text);
   if ((m = text.match(/This Pokémon takes [−–-](\d+) damage from attacks/i))) fx.reduce = +m[1];
   // コイン依存の軽減 (「ダメージを受けたらコインを投げ、オモテなら−N」)
   if ((m = text.match(/If any damage is done to this Pokémon by attacks, flip a coin\. If heads, this Pokémon takes [−–-](\d+) damage from that attack/i))) fx.reduceFlip = +m[1];
@@ -133,8 +136,9 @@ function parseAbilityFx(text) {
   if ((m = text.match(/Whenever you attach an? \{(\w)\} Energy from your Energy Zone to this Pokémon, do (\d+) damage to your opponent'?s Active Pokémon/i))) {
     fx.onAttach = { type: SIM_ENERGY_LETTER[m[1]] || null, dmg: +m[2] };
   }
-  // 「自分の番に1回,(このポケモンがバトル場にいるなら,)〜してよい」の任意節を許容
-  if ((m = text.match(/Once during your turn,[^.]*?you may take (?:a|an|1|(\d+)) \{(\w)\} Energy from your Energy Zone and attach it to (.+?)\./i))) {
+  // 「自分の番に1回,(このポケモンがバトル場にいるなら,)〜してよい」の任意節を許容。
+  // 進化時誘発(onEvolve)の文はここでは拾わない(二重加速を防ぐ)
+  if (!isOnEvolve && (m = text.match(/Once during your turn,[^.]*?you may take (?:a|an|1|(\d+)) \{(\w)\} Energy from your Energy Zone and attach it to (.+?)\./i))) {
     const target = m[3];
     fx.accel = {
       n: +(m[1] || 1),
@@ -144,11 +148,11 @@ function parseAbilityFx(text) {
         : "best",
     };
   }
-  if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
-  else if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
-  if ((m = text.match(/Once during your turn, [^.]*you may do (\d+) damage to your opponent'?s Active Pokémon/i))) fx.turnSnipe = +m[1];
+  if (!isOnEvolve && (m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
+  else if (!isOnEvolve && (m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
+  if (!isOnEvolve && (m = text.match(/Once during your turn, [^.]*you may do (\d+) damage to your opponent'?s Active Pokémon/i))) fx.turnSnipe = +m[1];
   // 自分の番に1回、相手のポケモン1匹に固定ダメージ (ゲッコウガ「みずしゅりけん」等)
-  else if ((m = text.match(/Once during your turn,[^.]*?you may do (\d+) damage to 1 of your opponent'?s Pokémon/i))) fx.turnSnipe = +m[1];
+  else if (!isOnEvolve && (m = text.match(/Once during your turn,[^.]*?you may do (\d+) damage to 1 of your opponent'?s Pokémon/i))) fx.turnSnipe = +m[1];
   // 反撃特性: バトル場でワザのダメージを受けたとき、ワザを使ったポケモンへ反撃
   if ((m = text.match(/is damaged by an attack from your opponent'?s Pokémon, do (\d+) damage to the Attacking Pokémon/i))) fx.counter = +m[1];
   if (/is damaged by an attack from your opponent'?s Pokémon, the Attacking Pokémon is now Poisoned/i.test(text)) fx.counterPoison = true;
@@ -167,6 +171,16 @@ function parseAbilityFx(text) {
   if ((m = text.match(/As long as this Pokémon is in the Active Spot, attacks used by your opponent'?s Active Pokémon do [−–-](\d+) damage/i))) fx.reduce = Math.max(fx.reduce || 0, +m[1]);
   // エネルギーがついていればにげるコスト0 (レビテト等)
   if (/If this Pokémon has any Energy attached, (?:it|this Pokémon) has no Retreat Cost/i.test(text)) fx.noRetreatIfEnergy = true;
+  // 進化時の誘発効果 (ハッピーリボン=2ドロー / イグニッション=エネ加速 等の一貫性エンジン)
+  if (/when you play this Pokémon from your hand to evolve/i.test(text)) {
+    const ev = {};
+    if ((m = text.match(/you may draw (\d+) cards/i))) ev.draw = +m[1];
+    if ((m = text.match(/you may heal (\d+) damage/i))) ev.heal = +m[1];
+    if ((m = text.match(/take a \{(\w)\} Energy from your Energy Zone and attach it to your Active/i))) ev.accel = SIM_ENERGY_LETTER[m[1]] || "Colorless";
+    if ((m = text.match(/you may do (\d+) damage to your opponent'?s Active/i))) ev.snipe = +m[1];
+    if (/discard a random Energy from your opponent'?s Active/i.test(text)) ev.oppDiscard = 1;
+    if (Object.keys(ev).length) fx.onEvolve = ev;
+  }
   return Object.keys(fx).length ? fx : null;
 }
 
@@ -664,6 +678,20 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           const upgraded = { ...inst(evo, me.turn), energy: spot.energy, damage: spot.damage };
           if (me.active === spot) me.active = upgraded;
           else me.bench[me.bench.indexOf(spot)] = upgraded;
+          // 進化時の誘発特性 (一貫性エンジン: ドロー/加速/回復/狙撃/相手エネ破壊)
+          const oe = upgraded.abFx?.onEvolve;
+          if (oe) {
+            if (oe.draw) me.hand.push(...me.deck.splice(0, oe.draw));
+            if (oe.heal) upgraded.damage = Math.max(0, upgraded.damage - oe.heal);
+            if (oe.accel && me.active) me.active.energy.push(oe.accel);
+            if (oe.snipe && op.active) {
+              op.active.damage += oe.snipe;
+              if (op.active.damage >= op.active.hp && knockOut(me, op, op.active)) return me === A ? 1 : 0;
+            }
+            if (oe.oppDiscard && op.active?.energy.length) {
+              op.etrash.push(...op.active.energy.splice(Math.floor(rng() * op.active.energy.length), 1));
+            }
+          }
         }
       }
     }

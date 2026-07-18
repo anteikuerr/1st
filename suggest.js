@@ -58,7 +58,10 @@ const SUGGEST_WEIGHTS = {
   exB: 30,     // exボーナス
   stageP: 10,  // 進化段数ごとのペナルティ (立ち上がりの遅さ)
   costP: 35,   // 最大打点ワザのエネルギーコスト1個あたりのペナルティ
-  abB: 0,      // 特性持ちボーナス (一律加点は逆効果なので0)
+  abB: 0,      // 特性一律の加点は逆効果なので0 (弱い特性持ちを拾ってしまう)
+  supportAbB: 70, // ただしデッキを回す特性(エネ加速/全体打点/設置ダメージ)だけは加点。
+                  // 実験で 0→49.7% / 70→55.6% (+5.9pt)。狙い撃ちなら特性評価は効く
+
   linearW: 0,  // 確定数採点に混ぜる線形項 (0=純粋な確定数)
   megaP: 10,   // メガexペナルティ (きぜつ3pt献上リスク。強すぎると平均を落とす)
   trainerSlots: 6, // トレーナー枠 (妨害系実装後の再実験で8→6が最適に)
@@ -331,7 +334,19 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     // 無色スプラッシュは同色の候補が乏しいときの受け皿に留める(軽い減点)。
     const isColorlessType = (myType === "Colorless" || myType === "無色");
     const splashPenalty = isColorlessType ? (weights.colorlessP || 0) : 0;
-    return dmgComponent - cost * effCostP + (e.d.h || 0) * weights.hpW -
+    // デッキを回す特性(エネ加速/全体打点強化/設置ダメージ)を持つ相方を加点。
+    // 一律の特性加点は逆効果だったが(abB=0)、盤面を能動的に動かす特性は別途評価する。
+    let supportBonus = 0;
+    if ((weights.supportAbB || 0) && typeof parseAbilityFx === "function") {
+      for (const ab of e.d.ab || []) {
+        const af = parseAbilityFx(ab.e);
+        if (af && (af.accel || af.teamBoost || af.onAttach || (af.onEvolve && af.onEvolve.accel))) {
+          supportBonus = weights.supportAbB;
+          break;
+        }
+      }
+    }
+    return dmgComponent - cost * effCostP + (e.d.h || 0) * weights.hpW + supportBonus -
       (e.d.rc || 0) * (weights.retreatP || 0) - dualPenalty - splashPenalty -
       hitBy * (weights.typeDefP ?? 0) +
       (/ex$/.test(e.card.name) ? weights.exB : 0) +
