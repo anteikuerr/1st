@@ -75,6 +75,12 @@ const els = {
   explainBody: $("#explain-body"),
   choiceModal: $("#choice-modal"),
   choiceDesc: $("#choice-desc"),
+  supportModal: $("#support-modal"),
+  supportList: $("#support-list"),
+  supportNote: $("#support-note"),
+  chatModal: $("#chat-modal"),
+  chatLog: $("#chat-log"),
+  chatControls: $("#chat-controls"),
   metaModal: $("#meta-modal"),
   metaDeckList: $("#meta-deck-list"),
   diagResults: $("#diag-results"),
@@ -881,6 +887,130 @@ function loadMetaDeck(coreName) {
   toast(`「${coreName}デッキ」を読み込みました 🔥 好きに入れ替えてOK`, 3000);
 }
 
+// ---------- サポート能動提案 ----------
+function runRecommendSupport() {
+  if (typeof recommendSupport !== "function") return;
+  const energies = state.energies.map((id) => ENERGY_ID_TO_TYPE[id]).filter(Boolean);
+  const { recs, note } = recommendSupport({
+    cards: state.allCards, details: state.details, deck: state.deck,
+    energies, cardById: state.cardById,
+  });
+  const room = DECK_SIZE - deckTotal();
+  els.supportNote.textContent = room > 0
+    ? `残り${room}枠。おすすめ順に並べました。「＋入れる」で追加できます。` + (note ? ` ${note}` : "")
+    : "デッキは20枚です。入れ替えたいカードを外してから追加してください。";
+  els.supportList.innerHTML = recs.slice(0, 10).map((r) =>
+    `<div class="sup-row" data-id="${esc(r.card.id)}">` +
+    `<div class="sup-info"><b>${esc(r.card.name)}</b><div class="sup-reason">${esc(r.reason)}</div></div>` +
+    `<button type="button" class="sup-add primary" data-id="${esc(r.card.id)}">＋入れる</button></div>`
+  ).join("") || "<p class='hint'>今のデッキには十分サポートが入っています👍</p>";
+  for (const btn of els.supportList.querySelectorAll(".sup-add")) {
+    btn.addEventListener("click", () => {
+      addToDeck(btn.dataset.id);
+      btn.textContent = "追加済";
+      btn.disabled = true;
+    });
+  }
+  els.supportModal.classList.remove("hidden");
+}
+
+// ---------- 会話でデッキを組む (ガイド付きウィザード) ----------
+const chat = { core: null, lean: null, power: null, chosen: null };
+function chatSay(text, who = "bot") {
+  const div = document.createElement("div");
+  div.className = `chat-msg chat-${who}`;
+  div.innerHTML = who === "bot" ? `<span class="chat-face">🎴</span><div class="chat-bubble">${text}</div>` : `<div class="chat-bubble">${text}</div>`;
+  els.chatLog.appendChild(div);
+  els.chatLog.scrollTop = els.chatLog.scrollHeight;
+}
+function chatControls(html) { els.chatControls.innerHTML = html; }
+
+function startChatBuild() {
+  chat.core = null; chat.lean = null; chat.power = null; chat.chosen = null;
+  els.chatLog.innerHTML = "";
+  chatSay("こんにちは！一緒にデッキを組もう🎴<br>主役にしたいポケモンはいる？名前を入れてね（ひらがなOK）。決まってなければ「おまかせ」で選ぶよ！");
+  chatControls(
+    `<input id="chat-core-input" type="text" placeholder="例: リザードンex / ぎゃらどす" autocomplete="off">` +
+    `<div class="chat-btn-row"><button id="chat-core-go" type="button" class="primary">決定</button>` +
+    `<button id="chat-omakase" type="button">🎲 おまかせ</button></div>`
+  );
+  $("#chat-core-go").addEventListener("click", () => chatPickCore($("#chat-core-input").value.trim()));
+  $("#chat-core-input").addEventListener("keydown", (e) => { if (e.key === "Enter") chatPickCore(e.target.value.trim()); });
+  $("#chat-omakase").addEventListener("click", () => chatPickCore(""));
+  els.chatModal.classList.remove("hidden");
+}
+
+function chatPickCore(query) {
+  let coreDeck = {};
+  if (query) {
+    const nq = normalize(query);
+    const hit = state.allCards.find((c) => {
+      const d = state.details.get(c.id);
+      return (d && (d.c === "Pokemon" || d.c === "ポケモン")) &&
+        (normalize(c.name).includes(nq) || normalize(c.enName || "").includes(nq));
+    });
+    if (!hit) { chatSay(`「${esc(query)}」が見つからなかった…もう一度名前を入れてみて！`, "bot"); return; }
+    chat.core = hit;
+    chatSay(query, "user");
+    coreDeck = { [hit.id]: 2 };
+  } else {
+    chatSay("おまかせで！", "user");
+  }
+  // リーン構築とパワー構築
+  const opts = { cards: state.allCards, details: state.details, deck: coreDeck };
+  chat.lean = suggestDeck(opts);
+  if (chat.lean.error) { chatSay("うまく組めなかった…別のポケモンで試してみて。", "bot"); return; }
+  chat.power = suggestDeck({ ...opts, weights: { ...SUGGEST_WEIGHTS, maxStage2Lines: 2, trainerSlots: 8 } });
+  const wc = chat.lean.winCondition;
+  chatSay(`「<b>${esc(chat.lean.name)}</b>」でいこう！<br>このデッキの勝ち筋は <b>【${esc(wc.label)}】</b> — ${esc(wc.plan)}。`, "bot");
+  chatMaybeAskStage2();
+}
+
+function chatMaybeAskStage2() {
+  const strong = (chat.power && !chat.power.error) ? detectStrong2ndLine(chat.lean, chat.power) : null;
+  if (strong) {
+    chatSay(`強い2進化ライン <b>${esc(strong.name)}</b>（${strong.dmg}打点/HP${strong.hp}）も入れられるよ。<br>パワーは上がるけど、進化が重くなって事故率も少し上がる。どうする？`, "bot");
+    chatControls(
+      `<div class="chat-btn-row"><button id="chat-power" type="button" class="primary">💪 入れる</button>` +
+      `<button id="chat-lean" type="button">🎯 たね中心で安定</button></div>`
+    );
+    $("#chat-power").addEventListener("click", () => { chatSay("パワー重視で！", "user"); chat.chosen = chat.power; chatSupportStep(); });
+    $("#chat-lean").addEventListener("click", () => { chatSay("たね中心で！", "user"); chat.chosen = chat.lean; chatSupportStep(); });
+    return;
+  }
+  chat.chosen = chat.lean;
+  chatSupportStep();
+}
+
+function chatSupportStep() {
+  const r = chat.chosen;
+  const energies = r.energies.map((t) => TYPE_TO_ENERGY_ID[t]).filter(Boolean).map((id) => ENERGY_ID_TO_TYPE[id]);
+  // デッキに入っているサポートの理由を提示
+  const inDeck = new Set(Object.keys(r.deck).map((id) => state.cardById.get(id)?.name));
+  const info = recommendSupport({ cards: state.allCards, details: state.details, deck: {}, energies: r.energies, cardById: state.cardById });
+  const reasons = info.recs.filter((x) => inDeck.has(x.card.name)).slice(0, 4)
+    .map((x) => `・<b>${esc(x.card.name)}</b>: ${esc(x.reason)}`).join("<br>");
+  chatSay(`トレーナーはこの構成にしたよ:<br>${reasons || "定番のサポートを入れておいたよ。"}`, "bot");
+  chatFinish();
+}
+
+function chatFinish() {
+  const r = chat.chosen;
+  let score = null;
+  if (typeof analyzeDeck === "function") {
+    const a = analyzeDeck({ cards: state.allCards, details: state.details, deck: r.deck, energies: r.energies.map((t) => t), cardById: state.cardById });
+    score = a;
+  }
+  const grade = score ? (score.score >= 85 ? "S" : score.score >= 72 ? "A" : score.score >= 58 ? "B" : score.score >= 45 ? "C" : "D") : "";
+  chatSay(`完成！${score ? `採点は <b>${score.score}点（${grade}）</b>。` : ""}${score && score.suggestions[0] ? `<br>伸ばしどころ: ${esc(score.suggestions[0])}` : ""}<br>気に入ったら下のボタンで使ってね！`, "bot");
+  chatControls(
+    `<div class="chat-btn-row"><button id="chat-use" type="button" class="primary">✅ このデッキを使う</button>` +
+    `<button id="chat-restart" type="button">🔄 もう一度</button></div>`
+  );
+  $("#chat-use").addEventListener("click", () => { closeModals(); applySuggested(chat.chosen); });
+  $("#chat-restart").addEventListener("click", startChatBuild);
+}
+
 // ---------- デッキ解説・採点 (10ステップの思考フロー) ----------
 function runExplain() {
   if (deckTotal() !== DECK_SIZE) {
@@ -1228,6 +1358,8 @@ function closeModals() {
   els.diagModal.classList.add("hidden");
   els.explainModal.classList.add("hidden");
   els.choiceModal.classList.add("hidden");
+  els.supportModal.classList.add("hidden");
+  els.chatModal.classList.add("hidden");
   els.metaModal.classList.add("hidden");
   state.modalCardId = null;
 }
@@ -1253,6 +1385,8 @@ function bindEvents() {
   $("#suggest-deck").addEventListener("click", runSuggest);
   $("#diag-deck").addEventListener("click", runDiagnosis);
   $("#explain-deck").addEventListener("click", runExplain);
+  $("#recommend-support").addEventListener("click", runRecommendSupport);
+  $("#chat-build").addEventListener("click", startChatBuild);
   $("#choice-power").addEventListener("click", () => { closeModals(); applySuggested(state._choicePower); });
   $("#choice-lean").addEventListener("click", () => { closeModals(); applySuggested(state._choiceLean); });
   $("#meta-decks-btn").addEventListener("click", openMetaDecks);

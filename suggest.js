@@ -567,3 +567,57 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   const winCondition = inferWinCondition(coreDList);
   return { deck: newDeck, energies, name: `${coreLabel}デッキ`, winCondition };
 }
+
+// 現在のデッキを見て、足すべきサポート/トレーナーを理由つきで能動提案する。
+// 返り値: [{ card, reason, priority }] を優先度降順で。app側で「＋追加」に使う。
+function recommendSupport({ cards, details, deck, energies = [], cardById }) {
+  cardById = cardById || new Map(cards.map((c) => [c.id, c]));
+  const isPk = (d) => d && (d.c === "Pokemon" || d.c === "ポケモン");
+  const jname = (n) => (typeof jaCardName === "function" ? jaCardName(n) : n);
+  const es = new Set(energies);
+  const col = (t) => es.has(t) || es.has({ Water: "水", Fire: "炎", Lightning: "雷", Grass: "草", Psychic: "超", Fighting: "闘", Darkness: "悪", Metal: "鋼" }[t]);
+  const ids = Object.keys(deck);
+  const namesInDeck = new Set(ids.map((id) => cardById.get(id)?.name).filter(Boolean));
+  const pkEnts = ids.map((id) => details.get(id)).filter(isPk);
+  const hasStage2 = pkEnts.some((d) => /2|Stage 2/.test(d.s || ""));
+  const pkNames = new Set(ids.map((id) => cardById.get(id)).filter((c) => c && isPk(details.get(c.id))).flatMap((c) => [c.name, c.enName]));
+  const drawCount = ids.filter((id) => /研究|モノマネ|ものまね|ボール|アオイ|ナンジャモ/.test(cardById.get(id)?.name || "")).reduce((a, id) => a + deck[id], 0);
+  const toolSyn = pkEnts.some((d) => (d.a || []).some((a) => /for each Pokémon Tool|has a Pokémon Tool/i.test(a.e || "")));
+  const trainerCount = ids.filter((id) => !isPk(details.get(id))).reduce((a, id) => a + deck[id], 0);
+
+  // 候補プール: [enName/jp, 理由生成, 優先度, 条件]
+  const P = [
+    { n: ["Poké Ball", "モンスターボール"], why: "たねポケモンを確実に引き込む基本のサーチ", pr: 10, if: () => true },
+    { n: ["Professor's Research", "博士の研究"], why: "手札を2枚補充する最強クラスのドロー", pr: 10, if: () => true },
+    { n: ["Rare Candy", "ふしぎなアメ"], why: "2進化を1ターン早く立てて事故を減らす", pr: 9, if: () => hasStage2 },
+    { n: ["Copycat", "モノマネむすめ", "ものまね娘"], why: "相手の手札ぶん引き直せる安定札(上位デッキ定番)", pr: 8, if: () => true },
+    { n: ["Cyrus", "アカギ"], why: "弱った相手ベンチを引きずり出して取り切るフィニッシャー", pr: 8, if: () => true },
+    { n: ["Misty", "カスミ"], why: "水エネを一気に加速できる爆発力", pr: 8, if: () => col("Water") },
+    { n: ["Electric Generator", "エレキジェネレーター"], why: "ベンチの雷ポケモンにエネを加速", pr: 8, if: () => col("Lightning") },
+    { n: ["Flame Patch", "ほのおのパッチ"], why: "トラッシュの炎エネを再利用して継続攻撃", pr: 7, if: () => col("Fire") },
+    { n: ["Juliana", "アオイ"], why: "山札から2進化を直接サーチして安定させる", pr: 7, if: () => hasStage2 },
+    { n: ["Sabrina", "ナツメ"], why: "育った相手を下げてテンポを奪う妨害", pr: 6, if: () => true },
+    { n: ["Giant Cape", "おおきなマント"], why: "HP+20でエースの耐久を底上げ", pr: 5, if: () => true },
+    { n: ["Rocky Helmet", "ゴツゴツメット"], why: "殴られたら反撃20。壁役と好相性", pr: 5, if: () => true },
+    { n: ["Sitrus Berry", "オボンのみ"], why: "半分以下で30回復してもうひと粘り", pr: 5, if: () => true },
+    { n: ["X Speed", "スピーダー"], why: "重いにげを踏み倒して入れ替え", pr: 5, if: () => true },
+    { n: ["Potion", "キズぐすり"], why: "20回復で相手の確定数をずらす", pr: 4, if: () => true },
+    { n: ["Red Card", "レッドカード"], why: "相手の手札を3枚に切り詰める妨害", pr: 4, if: () => true },
+  ];
+  const findCard = (names) => cards.find((c) => (names.includes(c.name) || names.includes(c.enName || "")) && !isPk(details.get(c.id)));
+
+  const recs = [];
+  for (const p of P) {
+    if (!p.if()) continue;
+    if (p.n.some((x) => namesInDeck.has(x))) continue; // 既に入っている
+    const card = findCard(p.n);
+    if (!card) continue;
+    let pr = p.pr;
+    // 状況に応じて優先度を微調整
+    if (/研究|モノマネ|ボール|アオイ/.test(card.name) && drawCount < 4) pr += 2; // ドローが薄い
+    if (/おおきなマント|ゴツゴツメット|オボンのみ/.test(card.name) && toolSyn) pr += 3; // どうぐデッキ
+    recs.push({ card, reason: p.why, priority: pr });
+  }
+  recs.sort((a, b) => b.priority - a.priority);
+  return { recs, trainerCount, drawCount, note: trainerCount < 8 ? "トレーナーがやや少なめ。安定のため足すのがおすすめ" : "" };
+}

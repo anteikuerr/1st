@@ -67,8 +67,10 @@
     </div>
     <div class="deck-progress"><div id="deck-progress-fill"></div></div>
 
+    <button id="chat-build" type="button" class="chat-btn">🗨️ 会話でデッキを組む</button>
     <button id="suggest-deck" type="button" class="suggest-btn">✨ おまかせでデッキ完成！</button>
     <p class="suggest-hint">核にしたいカードを1〜5種類入れて押すと、残りを自動で組みます（0枚ならおまかせで選択）</p>
+    <button id="recommend-support" type="button" class="support-btn">💡 サポートを提案してもらう</button>
     <button id="diag-deck" type="button" class="diag-btn">🥊 このデッキ、強い？（模擬対戦で診断）</button>
     <button id="explain-deck" type="button" class="explain-btn">🧠 このデッキを解説・採点</button>
 
@@ -133,6 +135,27 @@
     <h3>🔥 環境デッキ</h3>
     <p class="hint">環境上位・注目のコアから、このアプリの構築エンジンが組んだ参考デッキです。読み込んでから自由にいじってOK！</p>
     <div id="meta-deck-list"></div>
+  </div>
+</div>
+
+<!-- サポート提案モーダル -->
+<div id="support-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body meta-body">
+    <button class="modal-close" type="button">✕</button>
+    <h3>💡 サポートの提案</h3>
+    <p id="support-note" class="hint"></p>
+    <div id="support-list"></div>
+  </div>
+</div>
+
+<!-- 会話でデッキを組むモーダル -->
+<div id="chat-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body chat-body">
+    <button class="modal-close" type="button">✕</button>
+    <div id="chat-log" class="chat-log"></div>
+    <div id="chat-controls" class="chat-controls"></div>
   </div>
 </div>
 
