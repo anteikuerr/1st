@@ -147,6 +147,26 @@ function parseAbilityFx(text) {
   if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
   else if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
   if ((m = text.match(/Once during your turn, [^.]*you may do (\d+) damage to your opponent'?s Active Pokémon/i))) fx.turnSnipe = +m[1];
+  // 自分の番に1回、相手のポケモン1匹に固定ダメージ (ゲッコウガ「みずしゅりけん」等)
+  else if ((m = text.match(/Once during your turn,[^.]*?you may do (\d+) damage to 1 of your opponent'?s Pokémon/i))) fx.turnSnipe = +m[1];
+  // 反撃特性: バトル場でワザのダメージを受けたとき、ワザを使ったポケモンへ反撃
+  if ((m = text.match(/is damaged by an attack from your opponent'?s Pokémon, do (\d+) damage to the Attacking Pokémon/i))) fx.counter = +m[1];
+  if (/is damaged by an attack from your opponent'?s Pokémon, the Attacking Pokémon is now Poisoned/i.test(text)) fx.counterPoison = true;
+  // ポケモンチェック時の受動ダメージ/回復 (バトル場にいるとき)
+  if ((m = text.match(/During Pokémon Checkup, if this Pokémon is in the Active Spot, do (\d+) damage to each of your opponent'?s Pokémon/i))) fx.checkupDmg = { amount: +m[1], all: true };
+  else if ((m = text.match(/During Pokémon Checkup, if this Pokémon is in the Active Spot, do (\d+) damage to your opponent'?s Active/i))) fx.checkupDmg = { amount: +m[1], all: false };
+  if ((m = text.match(/During Pokémon Checkup, heal (\d+) damage from each of your Pokémon/i))) fx.checkupHealAll = +m[1];
+  // きぜつ時: ワザを使ったポケモンへ反動 / コインで相手のポイント獲得を拒否
+  if ((m = text.match(/is Knocked Out by damage from an attack from your opponent'?s Pokémon,[^.]*?do (\d+) damage to the Attacking Pokémon/i))) fx.onKoAttacker = +m[1];
+  if (/When this Pokémon is Knocked Out, flip a coin\. If heads, your opponent can'?t get any points/i.test(text)) fx.denyPointFlip = true;
+  // 相手をベンチへ下げる妨害 (自分の番に1回)
+  if (/Once during your turn,[^.]*?you may switch (?:out your opponent'?s Active Pokémon|in 1 of your opponent'?s Benched)/i.test(text)) fx.turnDisrupt = true;
+  // バトル場にいる限りの常時効果
+  if (/As long as this Pokémon is in the Active Spot, your opponent can'?t use any Supporter cards/i.test(text)) fx.lockSupporter = true;
+  if (/As long as this Pokémon is in the Active Spot, your opponent can'?t play any Stadium cards/i.test(text)) fx.lockStadium = true;
+  if ((m = text.match(/As long as this Pokémon is in the Active Spot, attacks used by your opponent'?s Active Pokémon do [−–-](\d+) damage/i))) fx.reduce = Math.max(fx.reduce || 0, +m[1]);
+  // エネルギーがついていればにげるコスト0 (レビテト等)
+  if (/If this Pokémon has any Energy attached, (?:it|this Pokémon) has no Retreat Cost/i.test(text)) fx.noRetreatIfEnergy = true;
   return Object.keys(fx).length ? fx : null;
 }
 
@@ -313,8 +333,13 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
 
   const pointsFor = (mon) => (mon.mega ? 3 : mon.ex ? 2 : 1);
   const knockOut = (me, op, mon) => {
+    const ab = mon.abFx;
+    // きぜつ時特性: コインで相手のポイント獲得を拒否 (フェードイントゥダークネス等)
+    const denied = ab?.denyPointFlip && rng() < 0.5;
     if (mon === op.active) {
-      me.points += pointsFor(mon);
+      // バトル場でのきぜつ反動: ワザを使ったポケモン(me.active)にダメージ
+      if (ab?.onKoAttacker && me.active) me.active.damage += ab.onKoAttacker;
+      if (!denied) me.points += pointsFor(mon);
       op.active = null;
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
@@ -323,7 +348,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       const i = op.bench.indexOf(mon);
       if (i >= 0) {
         op.bench.splice(i, 1);
-        me.points += pointsFor(mon);
+        if (!denied) me.points += pointsFor(mon);
         if (me.points >= 3) return true;
       }
     }
@@ -389,6 +414,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       if (!c.trainer) continue;
       const t = c.trainer;
       if (c.trainerType === "Supporter" && me.supporterUsed) continue;
+      // 相手のバトルポケモンの特性でサポート/スタジアムを封じられている
+      if (c.trainerType === "Supporter" && op.active?.abFx?.lockSupporter) continue;
+      if (c.trainerType === "Stadium" && op.active?.abFx?.lockStadium) continue;
       if (t === "Poké Ball" || t === "モンスターボール") {
         const bi = me.deck.findIndex((x) => x.basic);
         if (bi >= 0) me.hand.push(me.deck.splice(bi, 1)[0]);
@@ -677,16 +705,25 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         op.active.damage += ab.turnSnipe;
         if (op.active.damage >= op.active.hp && knockOut(me, op, op.active)) return me === A ? 1 : 0;
       }
+      // 相手のバトルポケモンをベンチへ下げる妨害 (育ったアタッカーを一時退場)
+      if (ab.turnDisrupt && mon === me.active && op.active && op.active.energy.length >= 2 && op.bench.length) {
+        op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
+        const incoming = op.bench.shift();
+        const outgoing = op.active;
+        outgoing.poison = outgoing.burn = outgoing.sleep = outgoing.para = outgoing.confuse = false;
+        op.active = incoming;
+        op.bench.push(outgoing);
+      }
     }
 
     // にげる (ルール: にげるコスト分のエネルギーをトラッシュ。ねむり/マヒ中は不可)
     // 攻撃できないバトルポケモンを、攻撃できるベンチと入れ替える。
     // コストを払えない重いポケモンはそのまま前に居座る = にげるコストのテンポ損
-    const effRc = me.active
-      ? Math.max(0, me.active.rc -
+    const effRc = !me.active ? 0
+      : (me.active.abFx?.noRetreatIfEnergy && me.active.energy.length) ? 0
+      : Math.max(0, me.active.rc -
           // スタジアム: ふしぎな広場 (超ポケモンのにげるコスト-2、お互い)
-          (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0))
-      : 0;
+          (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0));
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
         me.active.noRetreatTurn !== me.turn &&
         me.active.energy.length >= effRc) {
@@ -822,14 +859,16 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           if (r2) return r2 === "A" ? 1 : 0;
         }
 
-        // 反撃系どうぐ: 生き残った防御側がゴツゴツメット/どくバリを持っていた場合
+        // 反撃 (どうぐ・特性): 生き残った防御側の反撃効果
         if (dmg > 0 && op.active && op.active.damage > 0 && me.active) {
-          if (op.active.tool === "Rocky Helmet") {
-            me.active.damage += 20;
+          let counter = 0;
+          if (op.active.tool === "Rocky Helmet") counter += 20;
+          if (op.active.abFx?.counter) counter += op.active.abFx.counter; // 反撃特性
+          if (counter) {
+            me.active.damage += counter;
             if (me.active.damage >= me.active.hp && knockOut(op, me, me.active)) return op === A ? 1 : 0;
-          } else if (op.active.tool === "Poison Barb") {
-            me.active.poison = true;
           }
+          if (op.active.tool === "Poison Barb" || op.active.abFx?.counterPoison) me.active.poison = true;
         }
 
         // 自分への効果
@@ -909,6 +948,20 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           mon.tool = null;
         }
       }
+    }
+
+    // ポケモンチェック時の特性 (受動ダメージ/全体回復)
+    for (const [pl, opp] of [[A, B], [B, A]]) {
+      const cd = pl.active?.abFx?.checkupDmg;
+      if (cd && opp.active) {
+        const targets = cd.all ? board(opp) : [opp.active];
+        for (const tgt of targets.slice()) {
+          tgt.damage += cd.amount;
+          if (tgt.damage >= tgt.hp && knockOut(pl, opp, tgt)) return pl === A ? 1 : 0;
+        }
+      }
+      const ch = pl.active?.abFx?.checkupHealAll;
+      if (ch) for (const mon of board(pl)) mon.damage = Math.max(0, mon.damage - ch);
     }
 
     // ポケモンチェック (どく / やけど / ねむり判定)
