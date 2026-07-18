@@ -435,6 +435,38 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         const bi = me.deck.findIndex((x) => x.basic);
         if (bi >= 0) me.hand.push(me.deck.splice(bi, 1)[0]);
         me.hand.splice(i, 1);
+      } else if (t === "Cyrus" || t === "アカギ") {
+        // フィニッシャー: ダメージののった相手ベンチをバトル場に引きずり出す。
+        // 自分のワザで倒し切れる相手を優先(この番きぜつを狙う)。倒せなくても
+        // 育ちかけの脅威を引きずり出せるが、無駄撃ちを避けるため倒せる時だけ使う
+        if (op.active && op.bench.length) {
+          const atkEv = bestUsable(me.active)?.ev || bestPotential(me.active);
+          const dmgd = op.bench.filter((x) => x.damage > 0);
+          const killable = dmgd.filter((x) => x.hp - x.damage <= atkEv)
+            .sort((x, y) => attackerValue(y) - attackerValue(x))[0];
+          const target = killable || dmgd.sort((x, y) => attackerValue(y) - attackerValue(x))[0];
+          if (target) {
+            const bi = op.bench.indexOf(target);
+            op.bench.splice(bi, 1);
+            const outgoing = op.active;
+            outgoing.poison = outgoing.burn = outgoing.sleep = outgoing.para = outgoing.confuse = false;
+            op.active = target;
+            op.bench.push(outgoing);
+            me.supporterUsed = true;
+            me.hand.splice(i, 1);
+          }
+        }
+      } else if (t === "Copycat" || t === "ものまね娘" || t === "モノマネむすめ") {
+        // 相手の手札の枚数ぶんドロー (手札を切って引き直す)。手詰まり時に使う
+        if (me.hand.length - 1 <= 3 && me.deck.length) {
+          me.hand.splice(i, 1);
+          const back = me.hand.splice(0);
+          me.deck.push(...back);
+          me.deck = shuffle(me.deck);
+          me.hand.push(...me.deck.splice(0, Math.min(op.hand.length, me.deck.length)));
+          me.supporterUsed = true;
+          break;
+        }
       } else if (t === "Professor's Research" || t === "博士の研究") {
         me.hand.push(...me.deck.splice(0, 2));
         me.hand.splice(i, 1);
