@@ -60,6 +60,7 @@
     <button id="suggest-deck" type="button" class="suggest-btn">✨ おまかせでデッキ完成！</button>
     <p class="suggest-hint">核にしたいカードを1〜5種類入れて押すと、残りを自動で組みます（0枚ならおまかせで選択）</p>
     <button id="diag-deck" type="button" class="diag-btn">🥊 このデッキ、強い？（模擬対戦で診断）</button>
+    <button id="explain-deck" type="button" class="explain-btn">🧠 このデッキを解説・採点</button>
 
     <div class="deck-name-row">
       <input id="deck-name" type="text" placeholder="デッキ名" maxlength="40">
@@ -125,6 +126,17 @@
   </div>
 </div>
 
+<!-- デッキ解説・採点モーダル -->
+<div id="explain-modal" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-body meta-body">
+    <button class="modal-close" type="button">✕</button>
+    <h3>🧠 デッキ解説・採点</h3>
+    <div id="explain-body"></div>
+    <p class="hint">上級プレイヤーの思考順（勝ち筋→エース→サポート→シナジー→枠配分→動き→事故率→メタ→不要札→採点）でこの構築を言語化しています。</p>
+  </div>
+</div>
+
 <!-- デッキ診断モーダル -->
 <div id="diag-modal" class="modal hidden">
   <div class="modal-backdrop"></div>
@@ -141,6 +153,7 @@
 <script src="ja.js"></script>
 <script src="suggest.js"></script>
 <script src="sim.js"></script>
+<script src="analyze.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

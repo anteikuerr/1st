@@ -651,3 +651,74 @@ button.danger { color: var(--danger); }
   border-radius: 999px;
   font-size: 12px;
 }
+
+/* デッキ解説・採点 */
+.explain-btn {
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 10px;
+  border-radius: 999px;
+  background: #eef4ff;
+  border: 1px solid #c9d9f5;
+  color: #2a4d8f;
+  font-weight: bold;
+  font-size: 14px;
+}
+.ex-score {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.ex-grade {
+  font-size: 26px;
+  font-weight: bold;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+.ex-num-big { font-size: 28px; font-weight: bold; }
+.ex-num-big small { font-size: 14px; color: var(--text-dim); }
+.ex-bd { flex-basis: 100%; font-size: 11px; color: var(--text-dim); }
+.ex-step {
+  padding: 9px 0;
+  border-top: 1px solid var(--border);
+}
+.ex-step-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: bold;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.ex-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.ex-step-b { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+.ex-dim { color: var(--text-dim); font-size: 11px; }
+.ex-sug { margin: 0; padding-left: 18px; }
+.ex-sug li { margin: 2px 0; }
+
+.ex-grade.rank-S { color: #ffcb3b; background: #fff6d8; }
+.ex-grade.rank-A { color: #46a06e; background: #e3f6ec; }
+.ex-grade.rank-B { color: #4a8fb0; background: #e2f0f7; }
+.ex-grade.rank-C { color: #b0862f; background: #f7efdc; }
+.ex-grade.rank-D { color: var(--danger); background: #fbe6de; }

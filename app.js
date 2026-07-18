@@ -71,6 +71,8 @@ const els = {
   savedDeckList: $("#saved-deck-list"),
   cardModal: $("#card-modal"),
   diagModal: $("#diag-modal"),
+  explainModal: $("#explain-modal"),
+  explainBody: $("#explain-body"),
   metaModal: $("#meta-modal"),
   metaDeckList: $("#meta-deck-list"),
   diagResults: $("#diag-results"),
@@ -836,6 +838,48 @@ function loadMetaDeck(coreName) {
   toast(`「${coreName}デッキ」を読み込みました 🔥 好きに入れ替えてOK`, 3000);
 }
 
+// ---------- デッキ解説・採点 (10ステップの思考フロー) ----------
+function runExplain() {
+  if (deckTotal() !== DECK_SIZE) {
+    toast(`デッキを${DECK_SIZE}枚そろえてから解説できます`);
+    return;
+  }
+  if (typeof analyzeDeck !== "function") return;
+  const energies = state.energies.map((id) => ENERGY_ID_TO_TYPE[id]).filter(Boolean);
+  const a = analyzeDeck({
+    cards: state.allCards, details: state.details, deck: state.deck,
+    energies, cardById: state.cardById,
+    meta: (typeof SUGGEST_WEIGHTS !== "undefined") ? SUGGEST_WEIGHTS.meta : null,
+  });
+  const grade = a.score >= 85 ? "S" : a.score >= 72 ? "A" : a.score >= 58 ? "B" : a.score >= 45 ? "C" : "D";
+  const rows = [];
+  const step = (n, title, body) =>
+    `<div class="ex-step"><div class="ex-step-h"><span class="ex-num">${n}</span>${esc(title)}</div><div class="ex-step-b">${body}</div></div>`;
+
+  rows.push(
+    `<div class="ex-score"><span class="ex-grade rank-${grade}">${grade}</span>` +
+    `<span class="ex-num-big">${a.score}<small>/100</small></span>` +
+    `<div class="ex-bd">エース ${a.breakdown.ace} ・ 安定 ${a.breakdown.consistency} ・ メタ ${a.breakdown.meta} ・ カーブ ${a.breakdown.curve}</div></div>`
+  );
+  rows.push(step("1", "勝ち筋", `<b>${esc(a.win.label)}</b> — ${esc(a.win.desc)}`));
+  if (a.ace) rows.push(step("2", "エース分析",
+    `${esc(a.ace.name)}（${esc(a.ace.atkName || "")} <b>${a.ace.dmg}</b>打点 / ${a.ace.cost}エネ / HP${a.ace.hp}${a.ace.ex ? " / ex" : ""}）` +
+    `<br><span class="ex-dim">確定数 ${a.ace.koLines}帯を一撃圏内（HP50〜190の何段を超えるか）</span>`));
+  const sup = Object.entries(a.support).map(([r, list]) => `<b>${esc(r)}</b>: ${esc(list.join("・"))}`).join("<br>");
+  rows.push(step("3", "必要サポート", sup || "—"));
+  rows.push(step("4", "シナジー", a.synergy.map(esc).join("<br>") || "特筆なし"));
+  rows.push(step("5", "20枠の配分", `ポケモン <b>${a.slots.pk}</b> / トレーナー <b>${a.slots.tr}</b>（たね${a.slots.basics}・2進化ライン${a.slots.stage2Lines}本）`));
+  rows.push(step("6", "初手・中盤・終盤",
+    `<b>初手</b>: ${esc(a.gamePlan.opener)}<br><b>中盤</b>: ${esc(a.gamePlan.mid)}<br><b>終盤</b>: ${esc(a.gamePlan.finisher)}`));
+  rows.push(step("7", "事故率・再現性", `<b>${a.consistency.score}</b>/100 <span class="ex-dim">（${esc(a.consistency.factors.join("、"))}）</span>`));
+  rows.push(step("8", "メタ相性", `<b>${a.meta.score}</b>/100<br>${a.meta.notes.map(esc).join("<br>")}`));
+  rows.push(step("9", "不要カード候補", a.cuts.map(esc).join("<br>")));
+  rows.push(step("10", "改善案", `<ul class="ex-sug">${a.suggestions.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>`));
+
+  els.explainBody.innerHTML = rows.join("");
+  els.explainModal.classList.remove("hidden");
+}
+
 // ---------- デッキ診断 (模擬対戦) ----------
 const ENERGY_ID_TO_TYPE = {
   grass: "Grass", fire: "Fire", water: "Water", lightning: "Lightning",
@@ -1139,6 +1183,7 @@ function closeModals() {
   els.cardModal.classList.add("hidden");
   els.importModal.classList.add("hidden");
   els.diagModal.classList.add("hidden");
+  els.explainModal.classList.add("hidden");
   els.metaModal.classList.add("hidden");
   state.modalCardId = null;
 }
@@ -1163,6 +1208,7 @@ function bindEvents() {
 
   $("#suggest-deck").addEventListener("click", runSuggest);
   $("#diag-deck").addEventListener("click", runDiagnosis);
+  $("#explain-deck").addEventListener("click", runExplain);
   $("#meta-decks-btn").addEventListener("click", openMetaDecks);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
