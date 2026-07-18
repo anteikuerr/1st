@@ -722,3 +722,6 @@ button.danger { color: var(--danger); }
 .ex-grade.rank-B { color: #4a8fb0; background: #e2f0f7; }
 .ex-grade.rank-C { color: #b0862f; background: #f7efdc; }
 .ex-grade.rank-D { color: var(--danger); background: #fbe6de; }
+
+.choice-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.choice-actions button { width: 100%; padding: 12px; font-size: 14px; }

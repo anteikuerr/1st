@@ -73,6 +73,8 @@ const els = {
   diagModal: $("#diag-modal"),
   explainModal: $("#explain-modal"),
   explainBody: $("#explain-body"),
+  choiceModal: $("#choice-modal"),
+  choiceDesc: $("#choice-desc"),
   metaModal: $("#meta-modal"),
   metaDeckList: $("#meta-deck-list"),
   diagResults: $("#diag-results"),
@@ -739,20 +741,7 @@ const TYPE_TO_ENERGY_ID = {
   "超": "psychic", "闘": "fighting", "悪": "darkness", "鋼": "metal",
 };
 
-function runSuggest() {
-  if (state.details.size < state.allCards.length * 0.5) {
-    toast("カードデータの取り込み中です。少し待ってから試してください");
-    return;
-  }
-  const result = suggestDeck({
-    cards: state.allCards,
-    details: state.details,
-    deck: state.deck,
-  });
-  if (result.error) {
-    toast(result.error, 3000);
-    return;
-  }
+function applySuggested(result) {
   state.deck = result.deck;
   state.energies = [...new Set(result.energies.map((t) => TYPE_TO_ENERGY_ID[t]).filter(Boolean))].slice(0, 3);
   state.deckName = result.name;
@@ -762,6 +751,49 @@ function runSuggest() {
   const wc = result.winCondition;
   toast(`「${result.name}」完成 ✨ 勝ち筋: ${wc ? wc.label : "ビートダウン"}` +
     (wc ? `（${wc.plan}）` : ""), 4200);
+}
+
+// おまかせ中に、強い2進化ラインを2本目に入れるか選択式で聞く。
+// リーン構築(2進化1本)と、2本目を許した構築を比べ、強い2進化が増えるなら提示する。
+function detectStrong2ndLine(lean, power) {
+  const stg2 = (r) => new Set(Object.keys(r.deck)
+    .filter((id) => { const d = state.details.get(id); return d && /2|Stage 2/.test(d.s || ""); })
+    .map((id) => state.cardById.get(id)?.name).filter(Boolean));
+  const added = [...stg2(power)].filter((n) => !stg2(lean).has(n));
+  if (!added.length) return null;
+  // 追加される2進化の最大打点で「強い」ものだけを提示 (弱い中継ぎは出さない)
+  let best = null;
+  for (const name of added) {
+    const card = state.allCards.find((c) => c.name === name);
+    const d = card && state.details.get(card.id);
+    if (!d) continue;
+    const dmg = Math.max(0, ...(d.a || []).map((a) => { const m = String(a.d ?? "").match(/\d+/); return m ? +m[0] : 0; }));
+    if (dmg >= 100 && (!best || dmg > best.dmg)) best = { name, dmg, hp: d.h || 0 };
+  }
+  return best;
+}
+
+function runSuggest() {
+  if (state.details.size < state.allCards.length * 0.5) {
+    toast("カードデータの取り込み中です。少し待ってから試してください");
+    return;
+  }
+  const opts = { cards: state.allCards, details: state.details, deck: state.deck };
+  const lean = suggestDeck(opts);
+  if (lean.error) { toast(lean.error, 3000); return; }
+  // 強い2進化ラインを2本目に入れられるなら、ユーザーに選ばせる (パワー型は
+  // トレーナーを1枚ぶん削って2本目の進化ラインを収めるので trainerSlots を下げる)
+  const power = suggestDeck({ ...opts, weights: { ...SUGGEST_WEIGHTS, maxStage2Lines: 2, trainerSlots: 8 } });
+  const strong = (!power.error) ? detectStrong2ndLine(lean, power) : null;
+  if (strong) {
+    els.choiceDesc.innerHTML =
+      `このデッキには強い2進化ライン <b>${esc(strong.name)}</b>（${strong.dmg}打点 / HP${strong.hp}）を` +
+      `2本目として足せます。<br>パワーは上がりますが、2進化2本ぶん進化が重くなり事故率も上がります。`;
+    state._choiceLean = lean; state._choicePower = power;
+    els.choiceModal.classList.remove("hidden");
+    return;
+  }
+  applySuggested(lean);
 }
 
 // ---------- 環境デッキギャラリー ----------
@@ -1186,6 +1218,7 @@ function closeModals() {
   els.importModal.classList.add("hidden");
   els.diagModal.classList.add("hidden");
   els.explainModal.classList.add("hidden");
+  els.choiceModal.classList.add("hidden");
   els.metaModal.classList.add("hidden");
   state.modalCardId = null;
 }
@@ -1211,6 +1244,8 @@ function bindEvents() {
   $("#suggest-deck").addEventListener("click", runSuggest);
   $("#diag-deck").addEventListener("click", runDiagnosis);
   $("#explain-deck").addEventListener("click", runExplain);
+  $("#choice-power").addEventListener("click", () => { closeModals(); applySuggested(state._choicePower); });
+  $("#choice-lean").addEventListener("click", () => { closeModals(); applySuggested(state._choiceLean); });
   $("#meta-decks-btn").addEventListener("click", openMetaDecks);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
