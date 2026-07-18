@@ -91,6 +91,30 @@ function parseAttackFx(text) {
   if ((m = text.match(/If this Pokémon has no damage on it, this attack does (\d+) more damage/i))) fx.ifSelfClean = +m[1];
   // 連続攻撃 (メガガルーラex)
   if ((m = text.match(/This attack is used twice in a row\. The second attack does (\d+) damage/i))) fx.doubleSecond = +m[1];
+  // 反動: 次の自分の番はこのポケモンが攻撃できない (カイリューex ギガインパクト等)
+  if (/During your next turn, this Pokémon can'?t attack/i.test(text)) fx.selfLockNext = true;
+  // 余剰エネルギーによる追加ダメージ (「余分に{E}がN個ついていれば+M」)
+  if ((m = text.match(/If this Pokémon has at least (\d+) extra \{(\w)\} Energy attached, this attack does (\d+) more damage/i))) {
+    fx.extraEnergy = { n: +m[1], type: SIM_ENERGY_LETTER[m[2]] || null, bonus: +m[3] };
+  } else if ((m = text.match(/If this Pokémon has at least (\d+) extra Energy attached, this attack does (\d+) more damage/i))) {
+    fx.extraEnergy = { n: +m[1], type: null, bonus: +m[2] };
+  }
+  // 相手のベンチ数に比例した追加ダメージ
+  if ((m = text.match(/does (\d+) more damage for each of your opponent'?s Benched Pokémon/i))) fx.perOppBench = +m[1];
+  // 攻撃後に自分をベンチと入れ替える (ヒットアンドラン)
+  if (/Switch this Pokémon with \d+ of your Benched Pokémon/i.test(text) ||
+      /You may switch this Pokémon with 1 of your Benched Pokémon/i.test(text)) fx.selfSwitch = true;
+  // コインで全ダメージ無効 (次の相手の番)
+  if (/Flip a coin\. If heads, during your opponent'?s next turn, prevent all damage/i.test(text)) fx.coinShield = true;
+  // 確定で全ダメージ無効 (コインなし)
+  else if (/During your opponent'?s next turn, prevent all damage (?:done to this Pokémon )?(?:from|by) attacks/i.test(text)) fx.fullShield = true;
+  // 相手をにげられなくする (次の相手の番、バトルポケモンがにげられない)
+  if (/During your opponent'?s next turn, the Defending Pokémon can'?t retreat/i.test(text)) fx.trapOpp = true;
+  // ワザでドロー
+  if (/(?:^|\. )Draw a card\.?/i.test(text) && !/opponent/i.test(text)) fx.draw = (fx.draw || 0) + 1;
+  if ((m = text.match(/Draw (\d+) cards/i))) fx.draw = +m[1];
+  // 自分のエネルギーをランダムにトラッシュ (discardSelf 未設定時のみ)
+  if (fx.discardSelf === undefined && /Discard a random Energy from this Pokémon/i.test(text)) fx.discardSelf = 1;
   return Object.keys(fx).length ? fx : null;
 }
 
@@ -109,7 +133,8 @@ function parseAbilityFx(text) {
   if ((m = text.match(/Whenever you attach an? \{(\w)\} Energy from your Energy Zone to this Pokémon, do (\d+) damage to your opponent'?s Active Pokémon/i))) {
     fx.onAttach = { type: SIM_ENERGY_LETTER[m[1]] || null, dmg: +m[2] };
   }
-  if ((m = text.match(/Once during your turn, you may take (?:a|an|1|(\d+)) \{(\w)\} Energy from your Energy Zone and attach it to (.+?)\./i))) {
+  // 「自分の番に1回,(このポケモンがバトル場にいるなら,)〜してよい」の任意節を許容
+  if ((m = text.match(/Once during your turn,[^.]*?you may take (?:a|an|1|(\d+)) \{(\w)\} Energy from your Energy Zone and attach it to (.+?)\./i))) {
     const target = m[3];
     fx.accel = {
       n: +(m[1] || 1),
@@ -119,8 +144,8 @@ function parseAbilityFx(text) {
         : "best",
     };
   }
-  if ((m = text.match(/Once during your turn, you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
-  else if ((m = text.match(/Once during your turn, you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
+  if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage from your Active Pokémon/i))) fx.turnHealActive = +m[1];
+  else if ((m = text.match(/Once during your turn,[^.]*?you may heal (\d+) damage/i))) fx.turnHeal = +m[1];
   if ((m = text.match(/Once during your turn, [^.]*you may do (\d+) damage to your opponent'?s Active Pokémon/i))) fx.turnSnipe = +m[1];
   return Object.keys(fx).length ? fx : null;
 }
@@ -162,6 +187,14 @@ function attackEv(dmg, fx) {
   if (fx.ifSelfDamaged) ev += fx.ifSelfDamaged * 0.5;
   if (fx.ifSelfClean) ev += fx.ifSelfClean * 0.4;
   if (fx.doubleSecond) ev += fx.doubleSecond;
+  if (fx.selfLockNext) ev -= dmg * 0.35;               // 次番殴れない反動は大きく割り引く
+  if (fx.extraEnergy) ev += fx.extraEnergy.bonus * 0.5; // 条件を満たす確率ぶん
+  if (fx.perOppBench) ev += fx.perOppBench * 2;         // 相手ベンチ2匹想定
+  if (fx.selfSwitch) ev += 5;                           // ピボットの小さな価値
+  if (fx.coinShield) ev += 12;
+  if (fx.fullShield) ev += 22;
+  if (fx.trapOpp) ev += 10;
+  if (fx.draw) ev += fx.draw * 3;
   return ev;
 }
 
@@ -655,6 +688,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0))
       : 0;
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
+        me.active.noRetreatTurn !== me.turn &&
         me.active.energy.length >= effRc) {
       const readyIdx = me.bench.findIndex((m) => bestUsable(m));
       if (readyIdx >= 0 && attackerValue(me.bench[readyIdx]) > attackerValue(me.active)) {
@@ -667,7 +701,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     }
 
     // 攻撃 (ねむり/マヒ/ワザロック中は不可)
-    let attackAllowed = me.active && !me.active.sleep && !me.active.para && !me.active.lockAttack && !me.noAttack;
+    let attackAllowed = me.active && !me.active.sleep && !me.active.para && !me.active.lockAttack && !me.noAttack &&
+      me.active.cantAttackTurn !== me.turn; // 反動で攻撃不能の番
     // こんらん: コインでウラならワザ失敗
     if (attackAllowed && me.active.confuse && rng() < 0.5) attackAllowed = false;
 
@@ -728,6 +763,13 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         }
         if (fx.ifSelfTool && me.active.tool) dmg += fx.ifSelfTool;
         if (fx.perOppEnergy) dmg += fx.perOppEnergy * op.active.energy.length;
+        if (fx.perOppBench) dmg += fx.perOppBench * op.bench.length;
+        if (fx.extraEnergy) {
+          const attached = fx.extraEnergy.type
+            ? me.active.energy.filter((t) => t === fx.extraEnergy.type).length
+            : me.active.energy.length;
+          if (attached - attack.cost >= fx.extraEnergy.n) dmg += fx.extraEnergy.bonus;
+        }
         if (fx.perSelfEnergy) {
           const n = fx.perSelfEnergy.type
             ? me.active.energy.filter((t) => t === fx.perSelfEnergy.type).length
@@ -807,6 +849,22 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           me.active.shieldUntil = turnNo + 1;
           me.active.shieldValue = fx.shield;
         }
+        if ((fx.coinShield && rng() < 0.5) || fx.fullShield) {
+          me.active.shieldUntil = turnNo + 1;
+          me.active.shieldValue = 9999; // 全ダメージ無効
+        }
+        if (fx.draw) me.hand.push(...me.deck.splice(0, fx.draw));
+        // 反動: 次の自分の番はこのポケモンで攻撃できない
+        if (fx.selfLockNext && me.active) me.active.cantAttackTurn = me.turn + 1;
+        // ヒットアンドラン: 攻撃後にベンチの最良アタッカーと入れ替え
+        if (fx.selfSwitch && me.bench.length) {
+          const bi = me.bench.reduce((b, m, k, arr) => attackerValue(m) > attackerValue(arr[b]) ? k : b, 0);
+          if (attackerValue(me.bench[bi]) >= attackerValue(me.active)) {
+            const tmp = me.active;
+            me.active = me.bench[bi];
+            me.bench[bi] = tmp;
+          }
+        }
 
         // 相手への追加効果
         if (op.active) {
@@ -821,6 +879,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           if (fx.confuse) op.active.confuse = true;
           if (fx.paralyze || (fx.paralyzeFlip && rng() < 0.5)) op.active.para = true;
           if (fx.lockAttack) op.active.lockAttack = true;
+          if (fx.trapOpp) op.active.noRetreatTurn = op.turn + 1;
         }
 
         // 反動きぜつ
