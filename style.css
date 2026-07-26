@@ -154,6 +154,12 @@ button {
   transition: transform .08s, box-shadow .12s;
 }
 button:active { transform: scale(.96); }
+/* 重い処理の実行中 (押したことが必ず見えるように) */
+button.is-busy {
+  opacity: .6;
+  cursor: progress;
+  pointer-events: none;
+}
 button:hover { border-color: var(--text-dim); }
 button.primary {
   background: var(--accent);

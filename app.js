@@ -887,6 +887,38 @@ function loadMetaDeck(coreName) {
   toast(`「${coreName}デッキ」を読み込みました 🔥 好きに入れ替えてOK`, 3000);
 }
 
+/* 重い処理 (構築・シミュレーション) を押したボタンに紐づける。
+ * これらは同期処理でメインスレッドを数百ms〜1秒超ブロックするため、
+ * 何もしないとクリックの押下表示すら描画されず「反応しない」と見える。
+ * 「busyクラス+文言」を先に当て、rAF を2回待って"実際に描画された"ことを
+ * 確かめてから本処理に入る (rAF1回だと描画前にブロックが始まることがある)。 */
+function onHeavyClick(btn, busyLabel, fn) {
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    if (btn.dataset.busy) return; // 連打で二重に走らせない
+    const original = btn.innerHTML;
+    btn.dataset.busy = "1";
+    btn.classList.add("is-busy");
+    btn.innerHTML = busyLabel;
+    const done = () => {
+      btn.innerHTML = original;
+      btn.classList.remove("is-busy");
+      delete btn.dataset.busy;
+    };
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      try {
+        const r = fn();
+        // 将来 async 化しても壊れないようにしておく
+        if (r && typeof r.finally === "function") r.finally(done);
+        else done();
+      } catch (e) {
+        done();
+        throw e;
+      }
+    }));
+  });
+}
+
 // ---------- サポート能動提案 ----------
 function runRecommendSupport() {
   if (typeof recommendSupport !== "function") return;
@@ -1384,14 +1416,17 @@ function bindEvents() {
     persistCurrent();
   });
 
-  $("#suggest-deck").addEventListener("click", runSuggest);
-  $("#diag-deck").addEventListener("click", runDiagnosis);
-  $("#explain-deck").addEventListener("click", runExplain);
-  $("#recommend-support").addEventListener("click", runRecommendSupport);
-  $("#chat-build").addEventListener("click", startChatBuild);
+  // 構築・診断はメインスレッドを1秒前後ブロックする (スマホだと体感で固まる)。
+  // 押した瞬間に「考え中…」を描いてから走らせないと、押したことすら見えず
+  // 「ボタンが反応しない」と受け取られてしまう
+  onHeavyClick($("#suggest-deck"), "✨ 考え中…", runSuggest);
+  onHeavyClick($("#diag-deck"), "🥊 対戦中…", runDiagnosis);
+  onHeavyClick($("#explain-deck"), "🧠 採点中…", runExplain);
+  onHeavyClick($("#recommend-support"), "💡 考え中…", runRecommendSupport);
+  onHeavyClick($("#chat-build"), "🗨️ 準備中…", startChatBuild);
   $("#choice-power").addEventListener("click", () => { closeModals(); applySuggested(state._choicePower); });
   $("#choice-lean").addEventListener("click", () => { closeModals(); applySuggested(state._choiceLean); });
-  $("#meta-decks-btn").addEventListener("click", openMetaDecks);
+  onHeavyClick($("#meta-decks-btn"), "🔥 準備中…", openMetaDecks);
   $("#save-deck").addEventListener("click", saveDeck);
   $("#export-deck").addEventListener("click", exportDeck);
   $("#clear-deck").addEventListener("click", clearDeck);
