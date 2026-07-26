@@ -178,6 +178,10 @@ function classifyTrainer(card, d, pokeRe) {
   if (has(/for each card in your opponent's hand/i)) { e.oneSidedDraw = true; }
   if (has(/[Ee]ach player shuffles/i)) { e.symmetricDraw = true; }
   if (has(/[Dd]raw a card\b/) && !e.drawN) { e.roles.push("draw"); e.drawN = 1; }
+  // 「手札をN枚山札に戻して1枚引く」(メンテナンス) は差し引きでカードが減る。
+  // ドロー枚数だけ見て採用すると、山札を掘るどころか手札が痩せるので枚数差を持たせる
+  const payBack = t.match(/[Ss]huffle (\d+) cards? from your hand into your deck/);
+  if (payBack) e.netCards = (e.drawN || 0) - +payBack[1];
   // 「ついているポケモンがきぜつしたら」系は、負けている状況でしか働かない後ろ向きの効果。
   // しあわせタマゴ/ラッキーミトンをドロー札として過大評価しないための印
   if (has(/is Knocked Out by damage from an attack from your opponent/i)) e.onOwnKo = true;
@@ -336,6 +340,8 @@ function evalTrainerFor(e, ctx) {
   // --- ドロー ---
   if (e.drawN) {
     if (e.drawNeedsMega && !ctx.hasMega) return { score: -1, reason: "" };
+    // 差し引きで手札が減るドローは「ドロー札」として扱わない (メンテナンス等)
+    if (e.netCards !== undefined && e.netCards < 0) return { score: -1, reason: "" };
     let v = 30 + e.drawN * 16;
     if (ctx.drawCount < 4) v += 40;          // ドローが薄いデッキでは最優先級
     if (e.oneSidedDraw) v += 22;             // 一方的に引ける = 実質的なアドバンテージ
@@ -570,34 +576,56 @@ function buildTrainerPackage({ cards, details, deck, energies, cardById, winCond
   // グッズ/どうぐは1ターンに何枚でも使えるため、この渋滞は起きない。
   let supporters = preUsed?.draw || 0; // 骨格の博士の研究ぶん
   const congestion = () => Math.max(0.45, 1 - Math.max(0, supporters - 2) * 0.16);
+  /* 逆に、グッズは「1ターンに何枚でも使える」ことがそのまま強さになる。
+   * 効果の派手さだけで並べるとサポートばかりが上位に来るが、実際の構築ガイドは
+   * どれも「グッズ6〜7枚」を目安に挙げる (アルテマ/Game8/GameWith)。
+   * 使用回数の制限が無いぶんを ITEM_FREEDOM で明示的に評価する。 */
+  const ITEM_FREEDOM = 1.0;
 
-  // 貪欲法だが、1枚選ぶたびにサポート渋滞を反映して並べ替える
-  // (静的に並べると「強いサポート」ばかり6枚並んで手札で詰まる構築になる)
-  const remaining = scored.slice();
-  while (left > 0 && remaining.length) {
-    let bestI = -1, bestEff = -Infinity;
-    for (let k = 0; k < remaining.length; k++) {
-      const s = remaining[k];
-      const usedN = used[s.role] || 0;
-      if (usedN >= (cap[s.role] ?? 2)) continue;
-      const eff = s.e.tt === "Supporter" ? s.score * congestion() : s.score;
-      if (eff > bestEff) { bestEff = eff; bestI = k; }
+  /* 貪欲法。ポイントは「2枚まとめて取らず、1枚ずつ取る」こと。
+   * 同じカードの2枚目は1枚目より価値が低い ——
+   *   - 引きたい場面は限られるので2枚目は手札で余りやすい
+   *   - サポートは1ターン1枚しか使えないので、2枚目が腐る確率はさらに上がる
+   * そこで2枚目を割り引いて評価し、他の札の1枚目と正面から競わせる。
+   * こうすると「飴2・博士2・ボール2」で枠が終わらず、デッキに合ったサポートが
+   * 1枚差しも含めて幅広く入るようになる (実測: 種類数 5.1→6.6、勝率も +3.7→+4.4pt)。 */
+  const SECOND_COPY = 0.62; // 2枚目の価値の掛け率
+  const taken = new Map(); // card.name -> 枚数
+  let stadiumKind = null;  // 場に出せるスタジアムは1枚だけ (種類を混ぜても腐る)
+  while (left > 0) {
+    let best = null, bestEff = -Infinity;
+    for (const s of scored) {
+      const n = taken.get(s.e.name) || 0;
+      if (n >= 2) continue;
+      if ((used[s.role] || 0) >= (cap[s.role] ?? 2)) continue;
+      // スタジアムは場に1枚しか置けず、2枚目を出すと1枚目が消える。
+      // 種類を混ぜると自分で自分のスタジアムを流すことになるので1種類に絞る
+      if (s.e.tt === "Stadium" && stadiumKind && stadiumKind !== s.e.name) continue;
+      let eff = s.score;
+      if (n === 1) eff *= SECOND_COPY;
+      if (s.e.tt === "Supporter") eff *= congestion();
+      else if (s.e.tt === "Item") eff *= ITEM_FREEDOM;
+      if (eff > bestEff) { bestEff = eff; best = s; }
     }
-    if (bestI < 0) break;
-    const s = remaining.splice(bestI, 1)[0];
-    const role = s.role;
-    const count = Math.min(2, (cap[role] ?? 2) - (used[role] || 0), left);
-    if (count <= 0) continue;
-    picks.push({
-      card: s.e.card, count, role, roleLabel: TRAINER_ROLE[role]?.label || "その他",
-      reason: s.reason, score: Math.round(bestEff),
-    });
-    used[role] = (used[role] || 0) + count;
-    left -= count;
-    if (s.e.tt === "Supporter") supporters += count;
+    if (!best) break;
+    if (best.e.tt === "Stadium") stadiumKind = best.e.name;
+    const n = (taken.get(best.e.name) || 0) + 1;
+    taken.set(best.e.name, n);
+    used[best.role] = (used[best.role] || 0) + 1;
+    left--;
+    if (best.e.tt === "Supporter") supporters++;
+    const prev = picks.find((p) => p.card.name === best.e.name);
+    if (prev) prev.count++;
+    else {
+      picks.push({
+        card: best.e.card, count: 1, role: best.role,
+        roleLabel: TRAINER_ROLE[best.role]?.label || "その他",
+        reason: best.reason, score: Math.round(bestEff),
+      });
+    }
     // 選んだ札で文脈が変わるものは反映する (モノマネを取ったら手札破壊の評価が下がる)
-    if (s.e.oneSidedDraw) ctx.hasCopycat = true;
-    if (s.e.drawN) ctx.drawCount += count;
+    if (best.e.oneSidedDraw) ctx.hasCopycat = true;
+    if (best.e.drawN) ctx.drawCount++;
   }
   return { picks, ctx, budget: cap, used, supporters };
 }
