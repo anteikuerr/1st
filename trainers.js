@@ -402,6 +402,15 @@ function evalTrainerFor(e, ctx) {
     if (e.onOwnKo) v *= 0.2;
     if (e.onMyKo) v *= 0.5;
     // 場に居るだけで毎ターン引く特性(エンテイex系)が既にあるなら、ドロー札は重ねない
+    // 【測定した理由】この減点は当初あてずっぽうだったので、切り分けて測り直した:
+    //   減点あり +8.9pt / 減点なし +8.4pt / 逆に加点 +7.9pt (きれいに単調)
+    // 「引けば引くだけ強い」は一般には正しいが、ポケポケでは逓減が早い ——
+    //   (1) 20枚デッキなので2枚ドローは山の10%。60枚のゲームの3倍以上の効き幅で、
+    //       そのぶん「もう十分見えている」状態に早く到達する
+    //   (2) 律速はカードではなくエネルギー。エネルギーゾーンは毎番1個で固定なので、
+    //       引いても展開できない札が増えるだけになる場面がある
+    //   (3) ドローがサポートなら、アカギ/ナツメ/サカキと1ターン1枚の枠を奪い合う
+    // よって「既に毎ターン引ける特性がある」なら、次のドロー札の限界価値は下がる
     if (ctx.abilityDraw) v *= Math.max(0.6, 1 - ctx.abilityDraw * 0.2);
     s += v;
     R.push(e.oneSidedDraw
@@ -482,6 +491,7 @@ function evalTrainerFor(e, ctx) {
   // ただし加点を上げすぎるとどうぐで枠が埋まり、加速とドローが押し出されて逆に弱くなる
   // (実測: +40で+11.0pt / +60で+12.6pt / +85で+9.2pt / +110で+2.1pt)。+60が最適
   if (e.tt === "Tool" && ctx.toolSynergy) { s += 60; R.push("盤面のどうぐの数がそのまま打点になる"); }
+  else if (e.tt === "Tool" && ctx.toolCondition) { s += 25; R.push("どうぐが1枚ついていれば特性・ワザの条件を満たせる"); }
 
   // --- スタジアム (両者に効くので、自分だけ得する形でないと価値が薄い) ---
   if (e.tt === "Stadium") {
@@ -519,7 +529,7 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
   let hasStage1 = false, hasStage2 = false, hasMega = false, allBasic = true;
   let basicCount = 0, toolCount = 0, stadiumCount = 0, benchDamage = false, coinFix = false;
   let coinAttacks = 0, energyScaling = false;
-  let abilityDraw = 0, abilityAccel = 0, abilityShift = 0;
+  let abilityDraw = 0, abilityAccel = 0, abilityShift = 0, toolCondition = false;
   let abilityStatusImmune = false, poisonPayoff = false;
   let lowHpBasics = 0;
   let drawCount = 0, statusMeta = false, toolSynergy = false, hasCopycat = false;
@@ -553,7 +563,10 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
         if (/for each (?:\{\w\} )?Energy attached to this Pokémon/i.test(a.e || "")) energyScaling = true;
         if (/damage to (?:each of )?your opponent's Benched|damage to 1 of your opponent's Pokémon/i.test(a.e || "")) benchDamage = true;
         if (/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i.test(a.e || "")) statusMeta = true;
-        if (/for each Pokémon Tool attached|has a Pokémon Tool attached/i.test(a.e || "")) toolSynergy = true;
+        // 「どうぐの数×N」で打点が伸びる = 枚数を積むほど強い (デデンネex系)
+        if (/for each Pokémon Tool attached/i.test(a.e || "")) toolSynergy = true;
+        // 「どうぐがついていれば+N」= 1枚あれば足りる条件。枚数を積む理由にはならない
+        else if (/has a Pokémon Tool attached/i.test(a.e || "")) toolCondition = true;
       }
       /* 特性は「トレーナーの代わりを務める」ことが多く、ここを読まないと
        * デッキに既に入っている機能をトレーナーで二重に買ってしまう。
@@ -563,7 +576,9 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
         if (/damage to (?:each of )?your opponent's Benched/i.test(t)) benchDamage = true;
         // どうぐ参照の特性 (チェリンボ「どうぐがついていればワザのコスト-1」等)。
         // ワザ側しか見ていなかったので、どうぐ構築の判定を取りこぼしていた
-        if (/Pokémon Tool attached/i.test(t)) toolSynergy = true;
+        // 特性側のどうぐ参照(シルヴェオン=回復条件 / チェリンボ=コスト軽減条件)は
+        // いずれも「1枚ついていれば発動」なので、枚数シナジーとは区別する
+        if (/Pokémon Tool attached/i.test(t)) toolCondition = true;
         // 場に居るだけで毎ターン引く特性 (エンテイex系。13枚が該当) →ドロー札は控えめでよい
         if (/at the end of your turn.*draw a card/i.test(t)) abilityDraw++;
         // 特性でエネを動かす/増やす (ルナアーラex・シャワーズ・ジャローダ・ゼラオラ)
@@ -591,7 +606,7 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
   return {
     types, pokemonNames, aceDmg, aceHp, aceCost, aceRetreat,
     hasStage1, hasStage2, hasMega, allBasic, basicCount, lowHpBasics, toolCount, stadiumCount,
-    benchDamage, coinFix, coinAttacks, energyScaling, drawCount, statusMeta, toolSynergy, hasCopycat,
+    benchDamage, coinFix, coinAttacks, energyScaling, drawCount, statusMeta, toolSynergy, toolCondition, hasCopycat,
     abilityDraw, abilityAccel, abilityShift, abilityStatusImmune, poisonPayoff,
     winKey: winCondition?.key || null,
   };
@@ -622,7 +637,8 @@ function trainerPool(cards, details) {
 function roleBudget(ctx, slots) {
   const cap = {};
   for (const [k, v] of Object.entries(TRAINER_ROLE)) cap[k] = v.cap;
-  cap.tool = ctx.toolSynergy ? 6 : 2;          // どうぐ構築は盤面4匹ぶん載せたい
+  // 枚数シナジーなら盤面4匹ぶん載せたい。条件を満たすだけなら2〜3枚で足りる
+  cap.tool = ctx.toolSynergy ? 6 : ctx.toolCondition ? 3 : 2;
   cap.evoAid = ctx.hasStage2 ? 2 : (ctx.hasStage1 ? 2 : 0);
   cap.accel = ctx.aceCost >= 3 ? 2 : 2;
   cap.stadium = slots >= 12 ? 2 : 0;           // 枠が薄いときスタジアムは切る

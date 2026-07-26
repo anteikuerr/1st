@@ -931,13 +931,19 @@ function runRecommendSupport() {
   els.supportNote.textContent = room > 0
     ? `残り${room}枠。おすすめ順に並べました。「＋入れる」で追加できます。` + (note ? ` ${note}` : "")
     : "デッキは20枚です。入れ替えたいカードを外してから追加してください。";
-  els.supportList.innerHTML = recs.slice(0, 10).map((r) =>
-    `<div class="sup-row" data-id="${esc(r.card.id)}">` +
-    `<div class="sup-info"><b>${esc(r.card.name)}</b>` +
-    (r.roleLabel ? `<span class="sup-role">${esc(r.roleLabel)}</span>` : "") +
-    `<div class="sup-reason">${esc(r.reason)}</div></div>` +
-    `<button type="button" class="sup-add primary" data-id="${esc(r.card.id)}">＋入れる</button></div>`
-  ).join("") || "<p class='hint'>今のデッキには十分サポートが入っています👍</p>";
+  els.supportList.innerHTML = recs.slice(0, 10).map((r) => {
+    const src = thumbUrl(r.card);
+    return `<div class="sup-row" data-id="${esc(r.card.id)}">` +
+      (src ? `<img class="sup-img" src="${esc(src)}" alt="${esc(r.card.name)}" loading="lazy" data-id="${esc(r.card.id)}">` : "") +
+      `<div class="sup-info"><b>${esc(r.card.name)}</b>` +
+      (r.roleLabel ? `<span class="sup-role">${esc(r.roleLabel)}</span>` : "") +
+      `<div class="sup-reason">${esc(r.reason)}</div></div>` +
+      `<button type="button" class="sup-add primary" data-id="${esc(r.card.id)}">＋入れる</button></div>`;
+  }).join("") || "<p class='hint'>今のデッキには十分サポートが入っています👍</p>";
+  // サムネイルを押したらカード詳細を開く (効果テキストを確認してから入れられる)
+  for (const img of els.supportList.querySelectorAll(".sup-img")) {
+    img.addEventListener("click", () => openCardModal(img.dataset.id));
+  }
   for (const btn of els.supportList.querySelectorAll(".sup-add")) {
     btn.addEventListener("click", () => {
       addToDeck(btn.dataset.id);
@@ -948,101 +954,306 @@ function runRecommendSupport() {
   els.supportModal.classList.remove("hidden");
 }
 
-// ---------- 会話でデッキを組む (ガイド付きウィザード) ----------
-const chat = { core: null, lean: null, power: null, chosen: null };
+// ---------- 会話でデッキを組む ----------
+/* 固定の3ステップウィザードをやめ、いつでも自由に話しかけられる対話にした。
+ * 生成AIのような体験にするために必要なのは「毎回同じ順路を通す」ことではなく、
+ *   - こちらが常に入力を受け付けていること
+ *   - 何を言われても意図を汲んで、必ず一手進めて返すこと
+ *   - なぜそう組んだのかを聞かれたら答えられること
+ * の3つなので、意図解釈 → 実行 → 説明 のループとして作り直している。 */
+const chat = { core: null, result: null, style: null, history: [] };
+
 function chatSay(text, who = "bot") {
   const div = document.createElement("div");
   div.className = `chat-msg chat-${who}`;
-  div.innerHTML = who === "bot" ? `<span class="chat-face">🎴</span><div class="chat-bubble">${text}</div>` : `<div class="chat-bubble">${text}</div>`;
+  div.innerHTML = who === "bot"
+    ? `<span class="chat-face">🎴</span><div class="chat-bubble">${text}</div>`
+    : `<div class="chat-bubble">${text}</div>`;
   els.chatLog.appendChild(div);
   els.chatLog.scrollTop = els.chatLog.scrollHeight;
 }
 function chatControls(html) { els.chatControls.innerHTML = html; }
 
-function startChatBuild() {
-  chat.core = null; chat.lean = null; chat.power = null; chat.chosen = null;
-  els.chatLog.innerHTML = "";
-  chatSay("こんにちは！一緒にデッキを組もう🎴<br>主役にしたいポケモンはいる？名前を入れてね（ひらがなOK）。決まってなければ「おまかせ」で選ぶよ！");
+// 話しかけ方の「型」。デッキの状態に応じて出し分ける
+function chatChips() {
+  const has = !!chat.result;
+  const list = has
+    ? ["なんでその構成？", "もっと攻撃的に", "もっと安定させて", "採点して", "別の案も見たい", "これで使う"]
+    : ["リザードンex", "水のデッキ", "速いデッキがいい", "おまかせで"];
+  return list.map((t) => `<button type="button" class="chat-chip" data-say="${esc(t)}">${esc(t)}</button>`).join("");
+}
+function chatPrompt() {
   chatControls(
-    `<input id="chat-core-input" type="text" placeholder="例: リザードンex / ぎゃらどす" autocomplete="off">` +
-    `<div class="chat-btn-row"><button id="chat-core-go" type="button" class="primary">決定</button>` +
-    `<button id="chat-omakase" type="button">🎲 おまかせ</button></div>`
+    `<div class="chat-chips">${chatChips()}</div>` +
+    `<input id="chat-input" type="text" placeholder="なんでも書いてね（例: もっと硬くして / カスミ入れて / なんで？）" autocomplete="off">` +
+    `<div class="chat-btn-row"><button id="chat-send" type="button" class="primary">送信</button>` +
+    (chat.result ? `<button id="chat-use" type="button">✅ このデッキを使う</button>` : "") + `</div>`
   );
-  $("#chat-core-go").addEventListener("click", () => chatPickCore($("#chat-core-input").value.trim()));
-  $("#chat-core-input").addEventListener("keydown", (e) => { if (e.key === "Enter") chatPickCore(e.target.value.trim()); });
-  $("#chat-omakase").addEventListener("click", () => chatPickCore(""));
+  const input = $("#chat-input");
+  const go = () => { const v = input.value.trim(); if (v) { input.value = ""; chatHandle(v); } };
+  $("#chat-send").addEventListener("click", go);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  for (const b of els.chatControls.querySelectorAll(".chat-chip")) {
+    b.addEventListener("click", () => chatHandle(b.dataset.say));
+  }
+  const use = $("#chat-use");
+  if (use) use.addEventListener("click", () => { closeModals(); applySuggested(chat.result); });
+  input.focus();
+}
+
+function startChatBuild() {
+  chat.core = null; chat.result = null; chat.style = null; chat.history = [];
+  els.chatLog.innerHTML = "";
+  chatSay("こんにちは！一緒にデッキを組もう🎴<br>" +
+    "主役にしたいポケモン・使いたいタイプ・こんな戦い方がいい、なんでも書いてね。" +
+    "組んだあとも「もっと攻撃的に」「なんでその構成？」みたいに話しかけてくれれば直すよ。");
+  chatPrompt();
   els.chatModal.classList.remove("hidden");
 }
 
-function chatPickCore(query) {
+/* 入力から意図を読む。ポケポケの語彙に寄せた素朴な解釈だが、
+ * 「必ず何か1つは実行して返す」ことを優先している (黙って止まらない)。 */
+/* 意図判定用の正規化。
+ * カード検索用の normalize() は「ひらがな→カタカナ」変換なので、
+ * ひらがなで書いた判定パターンをそのまま当てると一致しない。
+ * ここでは逆にカタカナ→ひらがなへ寄せて、どちらの入力でも同じ表現で書けるようにする。 */
+function chatKana(s) {
+  return String(s ?? "").toLowerCase()
+    .replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+
+function chatIntent(text) {
+  const t = chatKana(text);
+  const raw = text;
+  if (/^(これでいい|これで使う|使う|けってい|決定|ok|おっけー)/.test(t)) return { kind: "use" };
+  if (/なんで|なぜ|どうして|りゆう|理由|せつめい|説明/.test(t)) return { kind: "why" };
+  if (/さいてん|採点|てんすう|点数|つよい\?|評価/.test(t)) return { kind: "score" };
+  if (/べつ|別|もういちど|もう一度|ほか|他|やりなお/.test(t)) return { kind: "reroll" };
+  if (/こうげきてき|攻撃的|つよく|強く|ぱわー|パワー|かち|火力|あたり|一撃/.test(t)) return { kind: "style", style: "power" };
+  if (/あんてい|安定|じこ|事故|まわる|回る|ぶれ/.test(t)) return { kind: "style", style: "stable" };
+  if (/かたく|硬く|たいきゅう|耐久|かたい|硬い|しぶとく/.test(t)) return { kind: "style", style: "tanky" };
+  if (/はやい|速い|はやく|速く|そっこう|速攻|あぐろ/.test(t)) return { kind: "style", style: "fast" };
+  const rm = raw.match(/(.+?)\s*(?:を)?\s*(?:ぬいて|抜いて|はずして|外して|けして|消して)/);
+  if (rm) return { kind: "remove", name: rm[1].trim() };
+  const am = raw.match(/(.+?)\s*(?:を)?\s*(?:いれて|入れて|ついか|追加)/);
+  if (am) return { kind: "add", name: am[1].trim() };
+  if (/おまかせ|まかせ|てきとう|適当|なんでも/.test(t)) return { kind: "core", query: "" };
+  // 「水のデッキ」「炎タイプで」のように、タイプを言っていると分かる形だけタイプ指定にする
+  // (単に「みずポケモン名」を打っただけの入力をタイプ扱いにしないため)
+  if (/(?:のでっき|のデッキ|たいぷ|タイプ|でくんで|で組んで|いろ|色)/.test(t)) {
+    const ty = chatTypeWord(t);
+    if (ty) return { kind: "type", type: ty };
+  }
+  return { kind: "core", query: raw.trim() };
+}
+function chatTypeWord(t) {
+  // ひらがな・漢字の両方で拾う (chatKana 済みの文字列を渡す前提)
+  const M = [
+    [/くさ|草/, "Grass"], [/ほのお|炎|ほのう|火/, "Fire"], [/みず|水/, "Water"],
+    [/かみなり|でんき|雷|電/, "Lightning"], [/えすぱー|ちょう|超/, "Psychic"],
+    [/かくとう|とう|闘/, "Fighting"], [/あく|悪/, "Darkness"],
+    [/はがね|鋼/, "Metal"], [/どらごん|竜|ドラゴン/, "Dragon"],
+  ];
+  for (const [re, v] of M) if (re.test(t)) return v;
+  return null;
+}
+
+// スタイルごとの重み。数値の根拠は docs/deck-theory.md の実験に準拠
+function chatWeights(style) {
+  const W = SUGGEST_WEIGHTS;
+  if (style === "power") return { ...W, maxStage2Lines: 2, trainerSlots: 9, exB: W.exB + 15 };
+  if (style === "stable") return { ...W, maxEvoLines: 2, maxStage2Lines: 1, trainerSlots: 12 };
+  if (style === "tanky") return { ...W, hpW: W.hpW * 2, costP: W.costP - 8 };
+  if (style === "fast") return { ...W, stageP: W.stageP * 2.5, costP: W.costP + 12, opener: true };
+  return W;
+}
+
+function chatHandle(text) {
+  chatSay(esc(text), "user");
+  const it = chatIntent(text);
+  chat.history.push(it.kind);
+  switch (it.kind) {
+    case "use":
+      if (!chat.result) { chatSay("まだデッキが無いよ。主役にしたいポケモンかタイプを教えて！"); break; }
+      closeModals(); applySuggested(chat.result); return;
+    case "why": chatWhy(); break;
+    case "score": chatScore(); break;
+    case "reroll": chatBuild({ reroll: true }); break;
+    case "style":
+      chat.style = it.style;
+      chatSay({ power: "パワー寄りに振り直すね💪", stable: "安定寄りに組み直すよ🎯",
+        tanky: "耐久寄りにしてみる🛡", fast: "速さ優先で組むね⚡" }[it.style]);
+      chatBuild({}); break;
+    case "type": chatSay(`${typeof jaType === "function" ? jaType(it.type) : it.type}タイプで組んでみるね！`); chatBuild({ type: it.type }); break;
+    case "add": chatEdit(it.name, +2); break;
+    case "remove": chatEdit(it.name, -2); break;
+    default: chatBuild({ query: it.query }); break;
+  }
+  chatPrompt();
+}
+
+// 名前でカードを引く (ひらがな検索に対応)
+function chatFindCard(query, pokemonOnly) {
+  const nq = normalize(query);
+  if (!nq) return null;
+  const pool = state.allCards.filter((c) => {
+    const d = state.details.get(c.id);
+    if (!d) return false;
+    const isPk = d.c === "Pokemon" || d.c === "ポケモン";
+    return pokemonOnly ? isPk : true;
+  });
+  return pool.find((c) => normalize(c.name) === nq) ||
+    pool.find((c) => normalize(c.name).includes(nq) || normalize(c.enName || "").includes(nq)) || null;
+}
+
+function chatBuild({ query, type, reroll } = {}) {
   let coreDeck = {};
   if (query) {
-    const nq = normalize(query);
-    const hit = state.allCards.find((c) => {
-      const d = state.details.get(c.id);
-      return (d && (d.c === "Pokemon" || d.c === "ポケモン")) &&
-        (normalize(c.name).includes(nq) || normalize(c.enName || "").includes(nq));
-    });
-    if (!hit) { chatSay(`「${esc(query)}」が見つからなかった…もう一度名前を入れてみて！`, "bot"); return; }
+    const hit = chatFindCard(query, true);
+    if (!hit) {
+      chatSay(`「${esc(query)}」は見つからなかった…<br>カード名の一部でもOKだし、「水のデッキ」みたいなタイプ指定や「おまかせ」でも組めるよ！`);
+      return;
+    }
     chat.core = hit;
-    chatSay(query, "user");
-    coreDeck = { [hit.id]: 2 };
-  } else {
-    chatSay("おまかせで！", "user");
+  } else if (type) {
+    // そのタイプで一番スコアの高いexを主役にする
+    const cands = state.allCards.filter((c) => {
+      const d = state.details.get(c.id);
+      return d && d.c === "Pokemon" && (d.t || []).includes(type) && /ex$/.test(c.name);
+    });
+    chat.core = cands[Math.floor(Math.random() * cands.length)] || null;
+  } else if (reroll) {
+    chat.core = null; // 主役ごと選び直す
   }
-  // リーン構築とパワー構築
-  const opts = { cards: state.allCards, details: state.details, deck: coreDeck };
-  chat.lean = suggestDeck(opts);
-  if (chat.lean.error) { chatSay("うまく組めなかった…別のポケモンで試してみて。", "bot"); return; }
-  chat.power = suggestDeck({ ...opts, weights: { ...SUGGEST_WEIGHTS, maxStage2Lines: 2, trainerSlots: 8 } });
-  const wc = chat.lean.winCondition;
-  chatSay(`「<b>${esc(chat.lean.name)}</b>」でいこう！<br>このデッキの勝ち筋は <b>【${esc(wc.label)}】</b> — ${esc(wc.plan)}。`, "bot");
-  chatMaybeAskStage2();
+  if (chat.core) coreDeck = { [chat.core.id]: 2 };
+
+  const r = suggestDeck({
+    cards: state.allCards, details: state.details, deck: coreDeck,
+    weights: chatWeights(chat.style),
+  });
+  if (r.error) { chatSay(`うまく組めなかった…（${esc(r.error)}）別のポケモンで試してみて！`); return; }
+  chat.result = r;
+  chatDescribe(r);
 }
 
-function chatMaybeAskStage2() {
-  const strong = (chat.power && !chat.power.error) ? detectStrong2ndLine(chat.lean, chat.power) : null;
-  if (strong) {
-    chatSay(`強い2進化ライン <b>${esc(strong.name)}</b>（${strong.dmg}打点/HP${strong.hp}）も入れられるよ。<br>パワーは上がるけど、進化が重くなって事故率も少し上がる。どうする？`, "bot");
-    chatControls(
-      `<div class="chat-btn-row"><button id="chat-power" type="button" class="primary">💪 入れる</button>` +
-      `<button id="chat-lean" type="button">🎯 たね中心で安定</button></div>`
-    );
-    $("#chat-power").addEventListener("click", () => { chatSay("パワー重視で！", "user"); chat.chosen = chat.power; chatSupportStep(); });
-    $("#chat-lean").addEventListener("click", () => { chatSay("たね中心で！", "user"); chat.chosen = chat.lean; chatSupportStep(); });
-    return;
+// 組んだデッキを「勝ち筋 → 主力 → 支える札」の順に説明する。
+// 一覧は必ず「今のデッキの中身」から作る (組んだ直後の計画を再利用すると、
+// あとから手で足し引きした結果とズレて、入れたはずのカードが説明に出てこない)
+function chatDeckRows(deck) {
+  const pk = [], tr = [];
+  for (const [id, n] of Object.entries(deck)) {
+    const c = state.cardById.get(id); const d = state.details.get(id);
+    if (!c || !d) continue;
+    (d.c === "Pokemon" || d.c === "ポケモン" ? pk : tr).push([`${n}×${c.name}`, n]);
   }
-  chat.chosen = chat.lean;
-  chatSupportStep();
+  const fmt = (a) => a.sort((x, y) => y[1] - x[1]).map((x) => x[0]).join("、");
+  return { pk: fmt(pk), tr: fmt(tr) };
 }
 
-function chatSupportStep() {
-  const r = chat.chosen;
-  const energies = r.energies.map((t) => TYPE_TO_ENERGY_ID[t]).filter(Boolean).map((id) => ENERGY_ID_TO_TYPE[id]);
-  // デッキに入っているサポートの理由を提示
-  const inDeck = new Set(Object.keys(r.deck).map((id) => state.cardById.get(id)?.name));
-  const info = recommendSupport({ cards: state.allCards, details: state.details, deck: {}, energies: r.energies, cardById: state.cardById });
-  const reasons = info.recs.filter((x) => inDeck.has(x.card.name)).slice(0, 4)
-    .map((x) => `・<b>${esc(x.card.name)}</b>: ${esc(x.reason)}`).join("<br>");
-  chatSay(`トレーナーはこの構成にしたよ:<br>${reasons || "定番のサポートを入れておいたよ。"}`, "bot");
-  chatFinish();
-}
-
-function chatFinish() {
-  const r = chat.chosen;
-  let score = null;
-  if (typeof analyzeDeck === "function") {
-    const a = analyzeDeck({ cards: state.allCards, details: state.details, deck: r.deck, energies: r.energies.map((t) => t), cardById: state.cardById });
-    score = a;
-  }
-  const grade = score ? (score.score >= 85 ? "S" : score.score >= 72 ? "A" : score.score >= 58 ? "B" : score.score >= 45 ? "C" : "D") : "";
-  chatSay(`完成！${score ? `採点は <b>${score.score}点（${grade}）</b>。` : ""}${score && score.suggestions[0] ? `<br>伸ばしどころ: ${esc(score.suggestions[0])}` : ""}<br>気に入ったら下のボタンで使ってね！`, "bot");
-  chatControls(
-    `<div class="chat-btn-row"><button id="chat-use" type="button" class="primary">✅ このデッキを使う</button>` +
-    `<button id="chat-restart" type="button">🔄 もう一度</button></div>`
+function chatDescribe(r) {
+  const wc = r.winCondition;
+  const { pk, tr } = chatDeckRows(r.deck);
+  const total = Object.values(r.deck).reduce((a, b) => a + b, 0);
+  chatSay(
+    `「<b>${esc(r.name)}</b>」が組めたよ！${total !== DECK_SIZE ? `<b>（${total}枚）</b>` : ""}<br>` +
+    `勝ち筋は <b>【${esc(wc.label)}】</b> — ${esc(wc.plan)}<br><br>` +
+    `<b>ポケモン</b>: ${esc(pk)}<br><b>トレーナー</b>: ${esc(tr)}<br>` +
+    `<span class="chat-dim">エネルギーは ${esc(r.energies.map((t) => (typeof jaType === "function" ? jaType(t) : t)).join("・"))}。` +
+    `「なんでその構成？」で理由を話すよ。</span>`
   );
-  $("#chat-use").addEventListener("click", () => { closeModals(); applySuggested(chat.chosen); });
-  $("#chat-restart").addEventListener("click", startChatBuild);
+}
+
+// トレーナー選択の理由を、エンジンが実際に使った根拠そのままで説明する
+function chatWhy() {
+  const r = chat.result;
+  if (!r) { chatSay("まだデッキが無いよ。主役にしたいポケモンかタイプを教えて！"); return; }
+  const lines = (r.trainerPlan || []).map((t) =>
+    `・<b>${esc(t.card.name)}</b>${t.count > 1 ? `×${t.count}` : ""}` +
+    `<span class="chat-role">${esc(t.roleLabel)}</span><br><span class="chat-dim">${esc(t.reason)}</span>`);
+  chatSay(
+    `勝ち筋の <b>【${esc(r.winCondition.label)}】</b> を通すために、こう選んだよ:<br><br>` +
+    (lines.join("<br>") || "定番のトレーナーを入れてあるよ。") +
+    `<br><br><span class="chat-dim">打点補正やHP補正は「確定数が何%の相手で変わるか」で採点してる。` +
+    `変えたいところがあれば「もっと硬くして」みたいに言ってね。</span>`
+  );
+}
+
+function chatScore() {
+  const r = chat.result;
+  if (!r) { chatSay("まだデッキが無いよ。まず主役を教えて！"); return; }
+  if (typeof analyzeDeck !== "function") { chatSay("採点機能が読み込めてないみたい…"); return; }
+  const a = analyzeDeck({
+    cards: state.allCards, details: state.details, deck: r.deck,
+    energies: r.energies.map((t) => t), cardById: state.cardById,
+  });
+  const grade = a.score >= 85 ? "S" : a.score >= 72 ? "A" : a.score >= 58 ? "B" : a.score >= 45 ? "C" : "D";
+  chatSay(
+    `採点は <b>${a.score}点（${grade}）</b>だよ。<br>` +
+    `<span class="chat-dim">エース ${a.breakdown.ace} ・ 安定 ${a.breakdown.consistency} ・ ` +
+    `メタ ${a.breakdown.meta} ・ カーブ ${a.breakdown.curve}</span>` +
+    (a.suggestions[0] ? `<br><br>伸ばしどころ: ${esc(a.suggestions[0])}` : "")
+  );
+}
+
+// 「〇〇入れて / 〇〇抜いて」に応える。20枚を保ちつつ、指定された札は必ず残す
+function chatEdit(name, delta) {
+  const r = chat.result;
+  if (!r) { chatSay("先にデッキを組もう！主役にしたいポケモンを教えて。"); return; }
+  const card = chatFindCard(name, false);
+  if (!card) { chatSay(`「${esc(name)}」が見つからなかった…名前の一部でもいいよ！`); return; }
+  const deck = { ...r.deck };
+  const isPk = (id) => { const d = state.details.get(id); return d && (d.c === "Pokemon" || d.c === "ポケモン"); };
+
+  if (delta < 0) {
+    if (!deck[card.id]) { chatSay(`${esc(card.name)}はもともと入ってないよ。`); return; }
+    delete deck[card.id];
+    chatSay(`${esc(card.name)}を抜いたよ。空いた枠は自動で埋め直すね。`);
+  } else {
+    if (deck[card.id] >= 2) { chatSay(`${esc(card.name)}はもう2枚入ってるよ（同名は2枚まで）。`); return; }
+    deck[card.id] = (deck[card.id] || 0) + 2 - (deck[card.id] || 0);
+    chatSay(`${esc(card.name)}を入れるね。`);
+  }
+
+  // 20枚を超えたら、評価の低いトレーナーから削って調整する
+  // (ポケモンを削ると進化ラインが壊れるので、まずトレーナーから)
+  let total = () => Object.values(deck).reduce((a, b) => a + b, 0);
+  const plan = [...(r.trainerPlan || [])].reverse();
+  while (total() > DECK_SIZE) {
+    const victim = plan.find((t) => deck[t.card.id] && t.card.id !== card.id) ||
+      Object.keys(deck).find((id) => !isPk(id) && id !== card.id);
+    const vid = victim ? (victim.card ? victim.card.id : victim) : null;
+    if (!vid) break;
+    deck[vid] -= 1;
+    if (!deck[vid]) delete deck[vid];
+  }
+  // 足りなければ同じ評価器で埋める (suggestDeck は「核は5種類まで」なので使わない)
+  if (total() < DECK_SIZE && typeof buildTrainerPackage === "function") {
+    const pkg = buildTrainerPackage({
+      cards: state.allCards, details: state.details, deck, energies: r.energies,
+      cardById: state.cardById, winCondition: r.winCondition,
+      slots: DECK_SIZE - total(),
+      exclude: new Set(Object.keys(deck).map((id) => state.cardById.get(id)?.name).filter(Boolean)),
+    });
+    for (const pick of pkg.picks) {
+      if (total() >= DECK_SIZE) break;
+      deck[pick.card.id] = Math.min(2, (deck[pick.card.id] || 0) + pick.count);
+    }
+  }
+  chat.result = { ...r, deck };
+  chatDescribe(chat.result);
+
+  // 進化元を失った進化ポケモンが残っていないか見て、残っていたら必ず伝える
+  // (黙って壊れたデッキを渡さない。ポケポケは進化元が場にいないと進化できない)
+  const names = new Set(Object.keys(deck).map((id) => state.cardById.get(id)?.name));
+  const orphans = Object.keys(deck).map((id) => {
+    const d = state.details.get(id);
+    const parent = d && d.dv ? (typeof jaCardName === "function" ? jaCardName(d.dv) : d.dv) : null;
+    return parent && !names.has(parent) ? `${state.cardById.get(id)?.name}（${parent}が必要）` : null;
+  }).filter(Boolean);
+  if (orphans.length) {
+    chatSay(`⚠️ ただし進化元がいなくなっちゃった: ${esc(orphans.join("、"))}<br>` +
+      `<span class="chat-dim">このままだと進化できないよ。進化元を戻すか、その進化ポケモンも抜くのがおすすめ。</span>`);
+  }
 }
 
 // ---------- デッキ解説・採点 (10ステップの思考フロー) ----------

@@ -796,6 +796,15 @@ button.danger { color: var(--danger); }
   padding: 10px 0;
   border-top: 1px solid var(--border);
 }
+.sup-img {
+  width: 46px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  aspect-ratio: 63 / 88;
+  object-fit: cover;
+  cursor: zoom-in;
+  background: var(--bg-soft);
+}
 .sup-info { flex: 1; min-width: 0; }
 .sup-reason { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .sup-role {
@@ -831,6 +840,33 @@ button.danger { color: var(--danger); }
   border-radius: 14px 4px 14px 14px;
   font-weight: 600;
 }
+.chat-dim { color: var(--text-dim); font-size: 11.5px; }
+.chat-role {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+}
+.chat-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.chat-chip {
+  padding: 5px 11px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.chat-chip:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+
 .chat-controls { border-top: 1px solid var(--border); padding-top: 10px; }
 .chat-controls input {
   width: 100%;
