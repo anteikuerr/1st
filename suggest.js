@@ -7,53 +7,19 @@
  *  - 定番トレーナーズを自動投入 (2進化がいればふしぎなアメ 等)
  */
 
-const SUGGEST_STAPLES = [
-  { names: ["Poké Ball", "モンスターボール"], count: 2 },
-  { names: ["Professor's Research", "博士の研究"], count: 2 },
-  // カキ (エネルギーゾーンから炎2個の直接加速) は対象がいれば最優先クラス:
-  // バクガメスデッキで実験 56.9%→63.8% (+6.9pt)。アメより先に取る
-  { names: ["Kiawe", "カキ"], count: 2,
-    cond: (ctx) => ["アローラガラガラ", "Alolan Marowak", "バクガメス", "Turtonator"].some((n) => ctx.names.has(n)) },
-  // ふしぎなアメは2進化デッキの必須札。黄金枠より先に確保する(進化が止まると事故る)
-  { names: ["Rare Candy", "ふしぎなアメ"], count: 2, cond: (ctx) => ctx.hasStage2 },
-  // TOP1000構築を参照した"黄金枠"。調査した上位デッキは4/4がモノマネむすめ+アカギを採用。
-  // モノマネむすめ=相手手札ぶんドローの安定札 / アカギ=育った相手ベンチを引きずり出す
-  // フィニッシャー。シミュは一貫性を過小評価するが(brick負けを再現しきれない)、
-  // 実環境の一致は強い証拠なので、進化ライン定石と同様に実戦知を優先して採用
-  { names: ["Copycat", "モノマネむすめ", "ものまね娘"], count: 2 },
-  { names: ["Cyrus", "アカギ"], count: 1 },
-  // ドロー/サーチ (一貫性): 2進化デッキはアオイで2進化を、メガデッキはセレナでメガを掘る
-  { names: ["Juliana", "アオイ"], count: 2, cond: (ctx) => ctx.hasStage2 },
-  { names: ["Serena", "セレナ"], count: 2, cond: (ctx) => ctx.hasMega },
-  // どうぐ多投構築 (デデンネex/エモンガ等、場のどうぐの数だけ打点が伸びるコア):
-  // 盤面全体に載る「どうぐ」を最優先で積む。盤面は最大4匹なので2種4枚で足りる
-  { names: ["Giant Cape", "おおきなマント"], count: 2, cond: (ctx) => ctx.toolSynergy },
-  { names: ["Sitrus Berry", "オボンのみ"], count: 2, cond: (ctx) => ctx.toolSynergy },
-  { names: ["Rocky Helmet", "ゴツゴツメット"], count: 2, cond: (ctx) => ctx.toolSynergy },
-  // トラッシュ参照の加速 (デンジ/ほのおのパッチ) は「トラッシュにエネがある」前提が
-  // 揃いにくく実験では中立〜逆効果だったため、アメより後ろ (枠が余ったときだけ)
-  { names: ["Volkner", "デンジ"], count: 2,
-    cond: (ctx) => ["エレキブル", "Electivire", "レントラー", "Luxray"].some((n) => ctx.names.has(n)) },
-  { names: ["Fantina", "メリッサ"], count: 2,
-    cond: (ctx) => ["フワライド", "Drifblim", "ムウマージ", "Mismagius"].some((n) => ctx.names.has(n)) },
-  { names: ["Brock", "タケシ"], count: 2,
-    cond: (ctx) => ["ゴローニャ", "Golem", "イワーク", "Onix"].some((n) => ctx.names.has(n)) },
-  // 色汎用のエネ加速: そのエネルギー色のデッキなら投入
-  { names: ["Misty", "カスミ"], count: 2, cond: (ctx) => ctx.energies.has("Water") || ctx.energies.has("水") },
-  { names: ["Electric Generator", "エレキジェネレーター"], count: 2,
-    cond: (ctx) => ctx.energies.has("Lightning") || ctx.energies.has("雷") },
-  { names: ["Flame Patch", "ほのおのパッチ"], count: 2,
-    cond: (ctx) => ctx.energies.has("Fire") || ctx.energies.has("炎") },
-  // どうぐ (実験: 各+0.5pt。反撃と回復は枠が余ったとき素直に強い)
-  { names: ["Rocky Helmet", "ゴツゴツメット"], count: 2 },
-  { names: ["Sitrus Berry", "オボンのみ"], count: 2 },
-  { names: ["X Speed", "スピーダー"], count: 2 },
-  { names: ["Sabrina", "ナツメ"], count: 2 },
-  { names: ["Giovanni", "サカキ"], count: 2 },
-  { names: ["Potion", "キズぐすり"], count: 2 },
-  { names: ["Giant Cape", "おおきなマント"], count: 2 },
-  { names: ["Red Card", "レッドカード"], count: 2 },
-  { names: ["Leaf", "リーフ"], count: 2 },
+/* トレーナーズの骨格 (必ず確保する一貫性の土台)。
+ * ここに置くのは「どんなデッキでも初動の再現性に直結する」札だけ。
+ * これ以外の全トレーナー(287種)は trainers.js が効果テキストから役割を判定し、
+ * デッキ文脈に対する期待値で選ぶ。名前の決め打ちをやめたことで、
+ * シロナ(+50)/ネモ(+80)/マーマネ(+30) のような名指しの強力札も自動で拾えるようになった。 */
+const SUGGEST_CORE_TRAINERS = [
+  // たねを引けないと何も始まらない。全構築ガイドが2枚固定で一致
+  { names: ["Poké Ball", "モンスターボール"], count: 2, role: "search", reason: "たねを確実に引き込む初動の土台" },
+  // 手札補充の最効率。20枚デッキでは1枚のドローの価値が非常に高い
+  { names: ["Professor's Research", "博士の研究"], count: 2, role: "draw", reason: "手札を2枚補充する最効率のドロー" },
+  // 2進化は進化が止まると即負けるので、アメは骨格側で確保する
+  { names: ["Rare Candy", "ふしぎなアメ"], count: 2, role: "evoAid", cond: (ctx) => ctx.hasStage2,
+    reason: "2進化を1ターン早く立てて進化落ちの事故をなくす" },
 ];
 
 // スコアリングの重み。対戦シミュレーション実験で調整 (docs/deck-theory.md 参照):
@@ -495,30 +461,21 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     }
   }
 
+  // --- 勝ち筋の確定 (トレーナー選択より先に決める) ---
+  // 旧実装は勝ち筋を最後に「表示用」として推定していた。だが実際の構築では
+  // 勝ち筋が決まってからサポートを選ぶ。順序を入れ替え、勝ち筋を trainers.js に渡す。
+  const coreDList = coreLines.length ? coreLines.flat().map((m) => m.d) : corePokemon.map((e) => e.d);
+  const winCondition = inferWinCondition(coreDList);
+
   // --- トレーナーズ ---
+  // 1) 骨格 (どんなデッキでも要る一貫性の土台) を先に確保
   const ctx = {
     hasStage2: Object.keys(newDeck).some((id) => {
       const d = details.get(id);
       return d && isStage2(d);
     }),
     energies: new Set(energies),
-    // デッキ内のポケモン名 (表示名と元言語名の両方)。ピンポイント系サポートの条件用
-    names: new Set(Object.keys(newDeck).flatMap((id) => {
-      const c = cardById.get(id);
-      return c ? [c.name, c.enName].filter(Boolean) : [];
-    })),
-    // たねポケモンだけのデッキか (はじまりの平原などの条件用)
-    allBasic: Object.keys(newDeck).every((id) => {
-      const d = details.get(id);
-      return !isPokemon(d) || isBasic(d);
-    }),
-    // コアがどうぐの数に依存する打点を持つか (どうぐ多投構築の条件用)
     toolSynergy: hasToolSynergy,
-    // メガシンカexを含むか (セレナのサーチ条件用)
-    hasMega: Object.keys(newDeck).some((id) => {
-      const c = cardById.get(id);
-      return c && /ex$/.test(c.name) && (/^メガ/.test(c.name) || /^Mega /.test(c.enName || ""));
-    }),
   };
   const findTrainer = (names) => {
     for (const c of cards) {
@@ -528,12 +485,37 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
     }
     return null;
   };
-  for (const staple of SUGGEST_STAPLES) {
+  const trainerPlan = [];
+  const preUsed = {};
+  for (const staple of SUGGEST_CORE_TRAINERS) {
     if (total() >= SIZE) break;
     if (staple.cond && !staple.cond(ctx)) continue;
     const c = findTrainer(staple.names);
     if (!c || hasName(c.name)) continue;
+    const before = total();
     add(c.id, staple.count);
+    const got = total() - before;
+    if (got > 0) {
+      preUsed[staple.role] = (preUsed[staple.role] || 0) + got;
+      trainerPlan.push({ card: c, count: got, role: staple.role, roleLabel: "骨格", reason: staple.reason });
+    }
+  }
+
+  // 2) 残りの枠を、効果テキストから役割を判定した287種のプールから
+  //    「デッキ文脈への期待値 × 役割の枠配分」で埋める
+  if (typeof buildTrainerPackage === "function" && total() < SIZE) {
+    const pkg = buildTrainerPackage({
+      cards, details, deck: newDeck, energies, cardById, winCondition,
+      slots: SIZE - total(),
+      exclude: new Set(Object.keys(newDeck).map((id) => cardById.get(id)?.name).filter(Boolean)),
+      preUsed,
+    });
+    for (const pick of pkg.picks) {
+      if (total() >= SIZE) break;
+      const before = total();
+      add(pick.card.id, pick.count);
+      if (total() > before) trainerPlan.push({ ...pick, count: total() - before });
+    }
   }
 
   // 足りなければ相方ポケモンを追加投入 (ここでも進化ラインの本数制限を守り、
@@ -562,62 +544,41 @@ function suggestDeck({ cards, details, deck: coreDeck, weights = SUGGEST_WEIGHTS
   if (total() !== SIZE) return { error: "デッキを組み立てられませんでした (カードデータ不足)" };
 
   const coreLabel = corePokemon[0]?.card.name || coreNames[0] || "おまかせ";
-  // 勝ち筋を推定 (コアの進化ライン全体のテキストから)
-  const coreDList = coreLines.length ? coreLines.flat().map((m) => m.d) : corePokemon.map((e) => e.d);
-  const winCondition = inferWinCondition(coreDList);
-  return { deck: newDeck, energies, name: `${coreLabel}デッキ`, winCondition };
+  return { deck: newDeck, energies, name: `${coreLabel}デッキ`, winCondition, trainerPlan };
 }
 
-// 現在のデッキを見て、足すべきサポート/トレーナーを理由つきで能動提案する。
-// 返り値: [{ card, reason, priority }] を優先度降順で。app側で「＋追加」に使う。
+/* 現在のデッキを見て、足すべきトレーナーを理由つきで能動提案する。
+ * おまかせ構築とまったく同じ評価器 (trainers.js) を使うので、
+ * 「提案される理由」と「自動で入る理由」が食い違わない。
+ * 返り値: { recs:[{card, reason, roleLabel, priority}], trainerCount, drawCount, note } */
 function recommendSupport({ cards, details, deck, energies = [], cardById }) {
   cardById = cardById || new Map(cards.map((c) => [c.id, c]));
   const isPk = (d) => d && (d.c === "Pokemon" || d.c === "ポケモン");
-  const jname = (n) => (typeof jaCardName === "function" ? jaCardName(n) : n);
-  const es = new Set(energies);
-  const col = (t) => es.has(t) || es.has({ Water: "水", Fire: "炎", Lightning: "雷", Grass: "草", Psychic: "超", Fighting: "闘", Darkness: "悪", Metal: "鋼" }[t]);
   const ids = Object.keys(deck);
   const namesInDeck = new Set(ids.map((id) => cardById.get(id)?.name).filter(Boolean));
-  const pkEnts = ids.map((id) => details.get(id)).filter(isPk);
-  const hasStage2 = pkEnts.some((d) => /2|Stage 2/.test(d.s || ""));
-  const pkNames = new Set(ids.map((id) => cardById.get(id)).filter((c) => c && isPk(details.get(c.id))).flatMap((c) => [c.name, c.enName]));
-  const drawCount = ids.filter((id) => /研究|モノマネ|ものまね|ボール|アオイ|ナンジャモ/.test(cardById.get(id)?.name || "")).reduce((a, id) => a + deck[id], 0);
-  const toolSyn = pkEnts.some((d) => (d.a || []).some((a) => /for each Pokémon Tool|has a Pokémon Tool/i.test(a.e || "")));
   const trainerCount = ids.filter((id) => !isPk(details.get(id))).reduce((a, id) => a + deck[id], 0);
+  const pokemonCount = ids.filter((id) => isPk(details.get(id))).reduce((a, id) => a + deck[id], 0);
 
-  // 候補プール: [enName/jp, 理由生成, 優先度, 条件]
-  const P = [
-    { n: ["Poké Ball", "モンスターボール"], why: "たねポケモンを確実に引き込む基本のサーチ", pr: 10, if: () => true },
-    { n: ["Professor's Research", "博士の研究"], why: "手札を2枚補充する最強クラスのドロー", pr: 10, if: () => true },
-    { n: ["Rare Candy", "ふしぎなアメ"], why: "2進化を1ターン早く立てて事故を減らす", pr: 9, if: () => hasStage2 },
-    { n: ["Copycat", "モノマネむすめ", "ものまね娘"], why: "相手の手札ぶん引き直せる安定札(上位デッキ定番)", pr: 8, if: () => true },
-    { n: ["Cyrus", "アカギ"], why: "弱った相手ベンチを引きずり出して取り切るフィニッシャー", pr: 8, if: () => true },
-    { n: ["Misty", "カスミ"], why: "水エネを一気に加速できる爆発力", pr: 8, if: () => col("Water") },
-    { n: ["Electric Generator", "エレキジェネレーター"], why: "ベンチの雷ポケモンにエネを加速", pr: 8, if: () => col("Lightning") },
-    { n: ["Flame Patch", "ほのおのパッチ"], why: "トラッシュの炎エネを再利用して継続攻撃", pr: 7, if: () => col("Fire") },
-    { n: ["Juliana", "アオイ"], why: "山札から2進化を直接サーチして安定させる", pr: 7, if: () => hasStage2 },
-    { n: ["Sabrina", "ナツメ"], why: "育った相手を下げてテンポを奪う妨害", pr: 6, if: () => true },
-    { n: ["Giant Cape", "おおきなマント"], why: "HP+20でエースの耐久を底上げ", pr: 5, if: () => true },
-    { n: ["Rocky Helmet", "ゴツゴツメット"], why: "殴られたら反撃20。壁役と好相性", pr: 5, if: () => true },
-    { n: ["Sitrus Berry", "オボンのみ"], why: "半分以下で30回復してもうひと粘り", pr: 5, if: () => true },
-    { n: ["X Speed", "スピーダー"], why: "重いにげを踏み倒して入れ替え", pr: 5, if: () => true },
-    { n: ["Potion", "キズぐすり"], why: "20回復で相手の確定数をずらす", pr: 4, if: () => true },
-    { n: ["Red Card", "レッドカード"], why: "相手の手札を3枚に切り詰める妨害", pr: 4, if: () => true },
-  ];
-  const findCard = (names) => cards.find((c) => (names.includes(c.name) || names.includes(c.enName || "")) && !isPk(details.get(c.id)));
-
-  const recs = [];
-  for (const p of P) {
-    if (!p.if()) continue;
-    if (p.n.some((x) => namesInDeck.has(x))) continue; // 既に入っている
-    const card = findCard(p.n);
-    if (!card) continue;
-    let pr = p.pr;
-    // 状況に応じて優先度を微調整
-    if (/研究|モノマネ|ボール|アオイ/.test(card.name) && drawCount < 4) pr += 2; // ドローが薄い
-    if (/おおきなマント|ゴツゴツメット|オボンのみ/.test(card.name) && toolSyn) pr += 3; // どうぐデッキ
-    recs.push({ card, reason: p.why, priority: pr });
+  if (typeof buildTrainerPackage !== "function") {
+    return { recs: [], trainerCount, drawCount: 0, note: "" };
   }
-  recs.sort((a, b) => b.priority - a.priority);
-  return { recs, trainerCount, drawCount, note: trainerCount < 8 ? "トレーナーがやや少なめ。安定のため足すのがおすすめ" : "" };
+  // 勝ち筋もデッキから推定して評価に混ぜる (狙撃デッキならアカギが上がる 等)
+  const dList = ids.map((id) => details.get(id)).filter(isPk);
+  const winCondition = typeof inferWinCondition === "function" ? inferWinCondition(dList) : null;
+
+  // 空き枠が無くても「候補として何が強いか」は知りたいので、常に10枠ぶん評価させる
+  const pkg = buildTrainerPackage({
+    cards, details, deck, energies, cardById, winCondition,
+    slots: 10, exclude: namesInDeck,
+  });
+  const drawCount = pkg.ctx.drawCount;
+  const recs = pkg.picks.map((p, i) => ({
+    card: p.card, reason: p.reason, roleLabel: p.roleLabel, priority: pkg.picks.length - i,
+  }));
+
+  let note = "";
+  if (trainerCount < 8) note = `トレーナーが${trainerCount}枚と少なめ。構築ガイドの目安は10〜12枚なので、安定のため足すのがおすすめ`;
+  else if (pokemonCount > 10) note = `ポケモンが${pokemonCount}枚と多め。目安は8〜10枚で、削るとサポートが入って安定します`;
+  else if (drawCount < 4) note = "ドロー・サーチが薄めです。初動が止まりやすいので優先して足しましょう";
+  return { recs, trainerCount, drawCount, note };
 }

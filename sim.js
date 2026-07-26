@@ -233,6 +233,17 @@ function attackEv(dmg, fx) {
 }
 
 // デッキ(id->枚数)をシミュレーション用の形に前処理する
+// ポケモン名の検出用正規表現をカードプール単位でキャッシュする
+// (名指しサポートの条件判定に使う。デッキごとに作り直すと重い)
+let _simPokeRe = null;
+function simPokeNameRe(cardById, details) {
+  if (_simPokeRe && _simPokeRe.size === cardById.size) return _simPokeRe.re;
+  if (typeof buildPokemonNameRegex !== "function") return null;
+  const re = buildPokemonNameRegex([...cardById.values()], details);
+  _simPokeRe = { size: cardById.size, re };
+  return re;
+}
+
 function buildSimDeck({ deck, energies, cardById, details }) {
   const NONC = (t) => t !== "Colorless" && t !== "無色";
   const cards = [];
@@ -274,6 +285,10 @@ function buildSimDeck({ deck, energies, cardById, details }) {
         attacks,
         abFx,
         trainer: !isPokemon ? (card.enName || card.name) : null,
+        // トレーナーの効果を構造化したもの (trainers.js)。名前ごとの個別実装が無い札も
+        // 役割ベースで汎用処理できるようにする。未実装=手札で腐る、という偏りをなくす
+        tfx: !isPokemon && typeof classifyTrainer === "function"
+          ? classifyTrainer(card, d, simPokeNameRe(cardById, details)) : null,
       });
     }
   }
@@ -345,7 +360,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     }
   }
 
-  const pointsFor = (mon) => (mon.mega ? 3 : mon.ex ? 2 : 1);
+  // サイドの点数。アイリス等の「倒したらサイドを1枚多く取る」は me.bonusPoint で加算
+  const pointsFor = (mon, me) => (mon.mega ? 3 : mon.ex ? 2 : 1) + (me?.bonusPoint || 0);
   const knockOut = (me, op, mon) => {
     const ab = mon.abFx;
     // きぜつ時特性: コインで相手のポイント獲得を拒否 (フェードイントゥダークネス等)
@@ -353,7 +369,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     if (mon === op.active) {
       // バトル場でのきぜつ反動: ワザを使ったポケモン(me.active)にダメージ
       if (ab?.onKoAttacker && me.active) me.active.damage += ab.onKoAttacker;
-      if (!denied) me.points += pointsFor(mon);
+      if (!denied) me.points += pointsFor(mon, me);
       op.active = null;
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
@@ -362,7 +378,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       const i = op.bench.indexOf(mon);
       if (i >= 0) {
         op.bench.splice(i, 1);
-        if (!denied) me.points += pointsFor(mon);
+        if (!denied) me.points += pointsFor(mon, me);
         if (me.points >= 3) return true;
       }
     }
@@ -385,6 +401,175 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     if (oa && (!oa.type || oa.type === type) && op.active) {
       op.active.damage += oa.dmg;
       if (op.active.damage >= op.active.hp) return knockOut(me, op, op.active);
+    }
+    return false;
+  };
+
+  /* 個別実装のないトレーナーを、trainers.js の分類(c.tfx)から汎用的に処理する。
+   * 使えたら手札から取り除いて true を返す。使う価値がない状況なら false (手札に残す)。
+   * 目的は「実装済みの札だけが強く見える」偏りを消すこと —— 収録カードの大半は
+   * 打点補正/HP増強/回復/加速/ドロー/サーチ/引きずり出し のどれかに収まる。 */
+  const genericTrainer = (c, i, me, op, turnNo) => {
+    const f = c.tfx;
+    const mine = board(me);
+    if (!mine.length) return false;
+    // 名指し条件: 対象が自分の場にいなければ使えない
+    const namedOk = !f.named.length || mine.some((m) => f.named.includes(m.name) || f.named.includes(m.enName));
+    const typeOk = (m) => !f.type || (m.types || []).includes(f.type);
+    const use = () => { me.hand.splice(i, 1); return true; };
+
+    // --- 打点補正 (この番だけ): 攻撃できる状態で、条件を満たすときだけ切る ---
+    if (f.boost && f.boostPerTurn && me.active && namedOk && typeOk(me.active)) {
+      const named = !f.named.length || f.named.includes(me.active.name);
+      const vsExOk = !f.boostVsEx || op.active?.ex;
+      if (named && vsExOk && bestUsable(me.active) && op.active) {
+        me.plusDmg = (me.plusDmg || 0) + f.boost;
+        return use();
+      }
+      return false;
+    }
+    // --- 追加サイド (アイリス等): 名指しが攻撃できるときに使う ---
+    if (f.extraPoint && me.active && namedOk && f.named.includes(me.active.name) && bestUsable(me.active)) {
+      me.bonusPoint = (me.bonusPoint || 0) + 1;
+      return use();
+    }
+    // --- HP増強どうぐ ---
+    if (f.hpUp && c.trainerType === "Tool") {
+      const tgt = mine.find((m) => !m.tool && typeOk(m) && (!f.named.length || f.named.includes(m.name)));
+      if (tgt) { tgt.tool = c.trainer; tgt.hp += f.hpUp; return use(); }
+      return false;
+    }
+    // --- ダメージ軽減 ---
+    if (f.reduce) {
+      if (c.trainerType === "Tool") {
+        const tgt = mine.find((m) => !m.tool && typeOk(m));
+        if (tgt) { tgt.tool = c.trainer; tgt.shieldUntil = turnNo + 1; tgt.shieldValue = f.reduce; return use(); }
+        return false;
+      }
+      // サポート/グッズ: 次の相手の番だけ守る。殴られる直前(=ダメージが乗っている)に使う
+      if (me.active && namedOk && typeOk(me.active) && me.active.damage > 0) {
+        me.active.shieldUntil = turnNo + 1;
+        me.active.shieldValue = Math.max(me.active.shieldValue || 0, f.reduce);
+        return use();
+      }
+      return false;
+    }
+    // --- 回復 (無駄撃ちしない: 実際に回復できるダメージがあるときだけ) ---
+    if (f.heal) {
+      const hurt = mine.filter((m) => m.damage > 0 && typeOk(m) && (!f.named.length || f.named.includes(m.name)))
+        .sort((x, y) => y.damage - x.damage)[0];
+      if (hurt && hurt.damage >= Math.min(f.heal, 20)) {
+        hurt.damage = Math.max(0, hurt.damage - f.heal);
+        if (c.trainerType === "Tool") hurt.tool = c.trainer;
+        return use();
+      }
+      return false;
+    }
+    // --- エネ加速 ---
+    if (f.roles.includes("accel") && namedOk) {
+      const wantType = f.type || me.energies[0];
+      const pick = mine.filter((m) => typeOk(m) && (!f.named.length || f.named.includes(m.name)))
+        .sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0))[0];
+      if (!pick) return false;
+      if (f.accelMove) {
+        // ベンチからバトル場へ移すだけ (総量は増えない)
+        const from = me.bench.find((m) => m.energy.length);
+        if (from && me.active && from !== me.active) {
+          me.active.energy.push(from.energy.pop());
+          return use();
+        }
+        return false;
+      }
+      if (f.accelFromDiscard) {
+        const j = me.etrash.indexOf(wantType);
+        if (j < 0) return false;
+        me.etrash.splice(j, 1);
+        pick.energy.push(wantType);
+        return use();
+      }
+      // 番が終わる加速は、対象がまだ殴れない立ち上がりのときだけ価値がある
+      if (f.endsTurn && (bestUsable(pick) || me.turn > 3)) return false;
+      // エネルギーゾーンから直接。コイン依存はその都度判定する
+      let n = f.accelN || 1;
+      if (f.coin) { n = 0; while (rng() < 0.5) { n++; if (n > 6) break; } if (!n) return use(); }
+      for (let k = 0; k < n; k++) {
+        if (attachEnergy(me, op, pick, wantType, turnNo)) return use();
+      }
+      if (f.endsTurn) me.noAttack = true; // 「この番は終わる」札は攻撃を放棄する
+      return use();
+    }
+    // --- ドロー ---
+    if (f.drawN >= 1) {
+      if (!me.deck.length) return false;
+      me.hand.push(...me.deck.splice(0, Math.min(Math.round(f.drawN), me.deck.length)));
+      return use();
+    }
+    // --- サーチ (カテゴリごとに山札から引っ張る) ---
+    if (f.roles.includes("search")) {
+      const match = {
+        basic: (x) => x.basic && (!f.searchHpMax || x.hp <= f.searchHpMax),
+        stage1: (x) => x.pokemon && x.evolvesFrom && !x.stage2,
+        stage2: (x) => x.stage2,
+        mega: (x) => x.mega,
+        tool: (x) => x.trainerType === "Tool",
+        stadium: (x) => x.trainerType === "Stadium",
+        named: (x) => f.named.includes(x.name),
+        typed: (x) => x.pokemon && typeOk(x),
+        pokemon: (x) => x.pokemon,
+      }[f.searchFor || "pokemon"];
+      const idxs = me.deck.map((x, k) => (match(x) ? k : -1)).filter((k) => k >= 0);
+      if (!idxs.length) return false;
+      me.hand.push(me.deck.splice(idxs[Math.floor(rng() * idxs.length)], 1)[0]);
+      return use();
+    }
+    // --- 引きずり出し (相手のベンチをバトル場へ) ---
+    if (f.roles.includes("gust") && op.active && op.bench.length) {
+      let pool = op.bench.filter((x) => (!f.gustNeedsDamage || x.damage > 0) && (!f.gustBasicOnly || x.basic));
+      if (!pool.length) return false;
+      // 自分で選べる札は「倒しやすい/育っている」相手を、選べない札は無条件に入れ替える
+      const atkEv = me.active ? (bestUsable(me.active)?.ev || bestPotential(me.active)) : 0;
+      pool = pool.sort((x, y) =>
+        (y.hp - y.damage <= atkEv ? 1 : 0) - (x.hp - x.damage <= atkEv ? 1 : 0) ||
+        attackerValue(y) - attackerValue(x));
+      const tgt = f.gustChoose ? pool[0] : pool[Math.floor(rng() * pool.length)];
+      const bi = op.bench.indexOf(tgt);
+      op.bench.splice(bi, 1);
+      const out = op.active;
+      out.poison = out.burn = out.sleep = out.para = out.confuse = false;
+      op.active = tgt;
+      op.bench.push(out);
+      return use();
+    }
+    // --- 進化補助 (山札から直接進化させる。アメ相当は candy で処理済み) ---
+    if (f.roles.includes("evoAid") && !f.evoSkip) {
+      for (const spot of mine) {
+        if (spot.playedTurn >= me.turn || !typeOk(spot)) continue;
+        const k = me.deck.findIndex((x) => x.pokemon && x.evolvesFrom === spot.name);
+        if (k < 0) continue;
+        const evo = me.deck.splice(k, 1)[0];
+        const up = { ...inst(evo, me.turn), energy: spot.energy, damage: spot.damage };
+        if (spot === me.active) me.active = up;
+        else me.bench[me.bench.indexOf(spot)] = up;
+        return use();
+      }
+      return false;
+    }
+    // --- にげるコスト軽減 ---
+    if (f.retreatCut) {
+      if (me.active && me.active.rc > 0 && me.active.damage > 0 && me.bench.length) {
+        me.retreatCut = Math.max(me.retreatCut || 0, f.retreatCut);
+        return use();
+      }
+      return false;
+    }
+    // --- 相手のエネルギーを落とす妨害 ---
+    if (f.energyAttack && op.active?.energy.length) {
+      let n = 1;
+      if (f.coin) { n = 0; while (rng() < 0.5) { n++; if (n > 5) break; } if (!n) return use(); }
+      for (let k = 0; k < n && op.active.energy.length; k++) {
+        op.etrash.push(...op.active.energy.splice(Math.floor(rng() * op.active.energy.length), 1));
+      }
+      return use();
     }
     return false;
   };
@@ -678,6 +863,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         } else if (!key) {
           me.hand.splice(i, 1); // 効果未実装のスタジアムは手札を圧迫しないよう捨てる
         }
+      } else if (c.tfx && genericTrainer(c, i, me, op, turnNo)) {
+        /* 汎用処理で使えた (下の genericTrainer が手札から取り除く) */
       } else {
         me.hand.splice(i, 1);
       }
@@ -783,7 +970,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       : (me.active.abFx?.noRetreatIfEnergy && me.active.energy.length) ? 0
       : Math.max(0, me.active.rc -
           // スタジアム: ふしぎな広場 (超ポケモンのにげるコスト-2、お互い)
-          (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0));
+          (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0) -
+          (me.retreatCut || 0)); // スピーダー/リーフ等のにげる軽減
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
         me.active.noRetreatTurn !== me.turn &&
         me.active.energy.length >= effRc) {
@@ -991,6 +1179,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     }
     if (me.active) me.active.lockAttack = false; // ワザロックは1ターンで解除
     me.plusDmg = 0; // 打点補正はこの番のみ
+    me.bonusPoint = 0; // 追加サイドもこの番のみ
+    me.retreatCut = 0; // にげる軽減もこの番のみ
     me.noAttack = false; // カキ等の「この番は終わる」も解除
 
     // ターン終了時のどうぐ効果

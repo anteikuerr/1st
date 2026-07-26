@@ -901,7 +901,9 @@ function runRecommendSupport() {
     : "デッキは20枚です。入れ替えたいカードを外してから追加してください。";
   els.supportList.innerHTML = recs.slice(0, 10).map((r) =>
     `<div class="sup-row" data-id="${esc(r.card.id)}">` +
-    `<div class="sup-info"><b>${esc(r.card.name)}</b><div class="sup-reason">${esc(r.reason)}</div></div>` +
+    `<div class="sup-info"><b>${esc(r.card.name)}</b>` +
+    (r.roleLabel ? `<span class="sup-role">${esc(r.roleLabel)}</span>` : "") +
+    `<div class="sup-reason">${esc(r.reason)}</div></div>` +
     `<button type="button" class="sup-add primary" data-id="${esc(r.card.id)}">＋入れる</button></div>`
   ).join("") || "<p class='hint'>今のデッキには十分サポートが入っています👍</p>";
   for (const btn of els.supportList.querySelectorAll(".sup-add")) {
