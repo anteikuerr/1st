@@ -60,10 +60,23 @@ function shareInRange(dist, lo, hi) {
   for (const [v, w] of dist) if (v > lo && v <= hi) s += w;
   return s;
 }
-// hp <= dmg < hp+plus に入る割合 (HPを plus 増やすと耐えるようになる攻撃の割合)
+/* HPを plus 増やしたときに「殴られて落ちる回数」が1回増える相手の割合。
+ *
+ * 【なぜ n発ぶんを見るのか】
+ * 以前は1発で耐えるかだけを見ていた (hp <= dmg < hp+plus)。だがそれだと
+ * HP210のエースに+30しても「210を一撃で落とす攻撃」がほぼ存在しないため価値0となり、
+ * リーフマント(草に+30)やおおきなマントが高HPデッキで一切候補に上がらなかった。
+ * 実際に効くのは2発圏・3発圏で、2×110=220 は 210 を落とすが 240 は落とせない ——
+ * つまり+30が「2発で落ちる」を「3発必要」に変える。ここが耐久どうぐの本体。
+ * n発目の価値はテンポぶん割り引く (1発=1.0 / 2発=0.7 / 3発=0.4)。 */
 function shareSurvived(hp, plus) {
   let s = 0;
-  for (const [v, w] of FIELD_DMG) if (v >= hp && v < hp + plus) s += w;
+  const W = [1, 0.7, 0.4];
+  for (let n = 1; n <= 3; n++) {
+    for (const [v, w] of FIELD_DMG) {
+      if (n * v >= hp && n * v < hp + plus) s += w * W[n - 1];
+    }
+  }
   return s;
 }
 
@@ -125,6 +138,12 @@ function classifyTrainer(card, d, pokeRe) {
   // --- タイプ条件 ({G}のポケモンに〜 のような色縛り) ---
   const typeTok = [...t.matchAll(/\{(\w)\}\s*Pokémon/g)].map((m) => TYPE_TOKEN[m[1]]).filter(Boolean);
   e.type = typeTok.find((x) => x && x !== "Colorless") || null;
+
+  // --- 進化段階の条件 (エレガントマント=1進化限定 / おおきなふうせん=2進化限定 等) ---
+  // これを見ないと「たねだけのデッキに1進化専用どうぐ」を入れてしまう
+  if (/\bStage 2 Pokémon this card is attached to|\bStage 2 Pokémon\b.*attached/i.test(t)) e.stageReq = 2;
+  else if (/\bStage 1 Pokémon this card is attached to|\bStage 1 Pokémon\b.*attached/i.test(t)) e.stageReq = 1;
+  else if (/\bBasic Pokémon this card is attached to/i.test(t)) e.stageReq = 0;
 
   // --- 打点補正 ---
   // 「attacks used by your X do +N damage」/ どうぐの「+N damage」
@@ -282,6 +301,11 @@ function evalTrainerFor(e, ctx) {
 
   // --- 色条件: デッキ色と合わないなら死に札 ---
   if (e.type && !ctx.types.has(e.type)) return { score: -1, reason: "" };
+  // --- 進化段階の条件: 貼る相手がいないどうぐは入れない ---
+  if (e.stageReq !== undefined) {
+    const ok = e.stageReq === 2 ? ctx.hasStage2 : e.stageReq === 1 ? ctx.hasStage1 : ctx.basicCount > 0;
+    if (!ok) return { score: -1, reason: "" };
+  }
 
   // --- 打点補正: 確定数が縮む相手の割合で測る ---
   if (e.boost) {
@@ -298,7 +322,14 @@ function evalTrainerFor(e, ctx) {
   }
   if (e.costCut) { s += 45; R.push(`ワザのコストが${e.costCut}軽くなり立ち上がりが早い`); }
   if (e.extraPoint) { s += 70; R.push("倒したときのサイドが1枚増え、必要な打点回数がまるごと減る"); }
-  if (e.passivePoison) { s += 18; R.push("殴られるたび相手をどく状態にして自然に削る"); }
+  if (e.passivePoison) {
+    // ウツロイドのような「どく状態の相手に追加ダメージ」特性があると、
+    // どくを撒くこと自体が打点計画になる
+    s += ctx.poisonPayoff ? 75 : 18;
+    R.push(ctx.poisonPayoff
+      ? "どくを撒くと味方特性の追加ダメージが乗り、そのまま打点計画になる"
+      : "殴られるたび相手をどく状態にして自然に削る");
+  }
 
   // --- 耐久 (HP増強 / 軽減) ---
   const plus = Math.max(e.hpUp || 0, e.reduce || 0);
@@ -317,7 +348,21 @@ function evalTrainerFor(e, ctx) {
     s += gain * 150 + (e.tt === "Tool" ? 14 : 6);
     R.push(`${e.heal >= 120 ? "全" : e.heal}回復で相手の確定数をずらす`);
   }
-  if (e.cureStatus && ctx.statusMeta) { s += 12; R.push("状態異常を解除して動きを止められない"); }
+  if (e.cureStatus) {
+    // 特性で状態異常を受けないポケモン(アルセウスex等)がいるなら解除札は死に札
+    if (ctx.abilityStatusImmune) return { score: -1, reason: "" };
+    if (ctx.statusMeta) { s += 12; R.push("状態異常を解除して動きを止められない"); }
+  }
+
+  /* --- コインシナジー ---
+   * 収録ワザの約2割(100種)がコイン絡み。「次のコインを必ず表にする」札(イツキ)は
+   * 単体では何もしないが、コインで打点が決まるデッキでは全ワザの期待値を底上げする。
+   * デッキのコインワザが多いときだけ価値を持つ、典型的な条件付きシナジー札。 */
+  if (/the first coin flip will definitely be heads/i.test(e.text)) {
+    if (ctx.coinAttacks < 2) return { score: -1, reason: "" };
+    s += 30 + ctx.coinAttacks * 14;
+    R.push(`コイン依存のワザが${ctx.coinAttacks}種あり、その表を確定させて期待値を底上げする`);
+  }
 
   // --- エネ加速 ---
   if (e.roles.includes("accel")) {
@@ -328,6 +373,11 @@ function evalTrainerFor(e, ctx) {
     if (e.accelFromDiscard) v *= 0.65;       // トラッシュ前提は序盤に使えない
     if (e.coin) v *= 0.8;                    // コイン依存でも「無料の1個」は十分強い
     if (ctx.coinFix) v *= 1.25;              // ウィロー系(確定表)があるならさらに戻す
+    // 「ついているエネルギーの数だけ打点が伸びる」エースがいるなら、加速は
+    // 立ち上がりを早めるだけでなく打点そのものになる (ミライドンex系)
+    if (ctx.energyScaling) { v *= 1.35; R.push("しかもエネの数がそのまま打点に乗る"); }
+    // 特性側で既にエネを供給・移動できているなら、加速トレーナーの限界価値は下がる
+    if (ctx.abilityAccel) v *= Math.max(0.65, 1 - ctx.abilityAccel * 0.18);
     if (e.endsTurn) v *= ctx.winKey === "onehit" || ctx.winKey === "ramp" ? 1.15 : 0.6;
     if (ctx.aceCost >= 3) v *= 1.3;          // 重いエースを積んでいるほど加速が効く
     if (namedHit.length) v += 30;
@@ -351,6 +401,8 @@ function evalTrainerFor(e, ctx) {
     // ドローとは価値が別物なので大きく割り引く (しあわせタマゴ等)
     if (e.onOwnKo) v *= 0.2;
     if (e.onMyKo) v *= 0.5;
+    // 場に居るだけで毎ターン引く特性(エンテイex系)が既にあるなら、ドロー札は重ねない
+    if (ctx.abilityDraw) v *= Math.max(0.6, 1 - ctx.abilityDraw * 0.2);
     s += v;
     R.push(e.oneSidedDraw
       ? "相手の手札の枚数ぶん一方的に引ける安定札 (上位デッキの定番)"
@@ -408,6 +460,8 @@ function evalTrainerFor(e, ctx) {
 
   // --- 入れ替え / にげる軽減 ---
   if (e.roles.includes("shift")) {
+    // 特性でにげる/入れ替えが済むデッキ(シェイミ・ソルガレオex等)では二重投資になる
+    if (ctx.abilityShift >= 1) return { score: -1, reason: "" };
     let v = 20 + (ctx.aceRetreat >= 2 ? 18 : 0);
     if (e.pickUp) v = namedHit.length ? 26 : 12;
     s += v;
@@ -464,6 +518,9 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
   let aceDmg = 0, aceHp = 60, aceCost = 0, aceRetreat = 0;
   let hasStage1 = false, hasStage2 = false, hasMega = false, allBasic = true;
   let basicCount = 0, toolCount = 0, stadiumCount = 0, benchDamage = false, coinFix = false;
+  let coinAttacks = 0, energyScaling = false;
+  let abilityDraw = 0, abilityAccel = 0, abilityShift = 0;
+  let abilityStatusImmune = false, poisonPayoff = false;
   let lowHpBasics = 0;
   let drawCount = 0, statusMeta = false, toolSynergy = false, hasCopycat = false;
 
@@ -489,12 +546,35 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
         if (types.size && !cost.filter(nonColorless).every((t) => types.has(t))) continue;
         const v = parseDmg(a.d);
         if (v > aceDmg) { aceDmg = v; aceHp = d.h || aceHp; aceCost = cost.length; aceRetreat = d.rc || 0; }
+        // コイン依存のワザ (収録ワザの約2割がコイン絡み)。多いほど「最初の1回を必ず表に
+        // する」札(イツキ)や、コインで加速する札の価値が変わる
+        if (/[Ff]lip a coin|[Ff]lip \d+ coins|flip a coin until you get tails/.test(a.e || "")) coinAttacks++;
+        // 「ついているエネルギーの数だけ打点が伸びる」ワザは、加速がそのまま打点になる
+        if (/for each (?:\{\w\} )?Energy attached to this Pokémon/i.test(a.e || "")) energyScaling = true;
         if (/damage to (?:each of )?your opponent's Benched|damage to 1 of your opponent's Pokémon/i.test(a.e || "")) benchDamage = true;
         if (/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i.test(a.e || "")) statusMeta = true;
         if (/for each Pokémon Tool attached|has a Pokémon Tool attached/i.test(a.e || "")) toolSynergy = true;
       }
+      /* 特性は「トレーナーの代わりを務める」ことが多く、ここを読まないと
+       * デッキに既に入っている機能をトレーナーで二重に買ってしまう。
+       * 逆に、特性が前提を作ってくれるおかげで初めて価値が出るトレーナーもある。 */
       for (const ab of d.ab || []) {
-        if (/damage to (?:each of )?your opponent's Benched/i.test(ab.e || "")) benchDamage = true;
+        const t = ab.e || "";
+        if (/damage to (?:each of )?your opponent's Benched/i.test(t)) benchDamage = true;
+        // どうぐ参照の特性 (チェリンボ「どうぐがついていればワザのコスト-1」等)。
+        // ワザ側しか見ていなかったので、どうぐ構築の判定を取りこぼしていた
+        if (/Pokémon Tool attached/i.test(t)) toolSynergy = true;
+        // 場に居るだけで毎ターン引く特性 (エンテイex系。13枚が該当) →ドロー札は控えめでよい
+        if (/at the end of your turn.*draw a card/i.test(t)) abilityDraw++;
+        // 特性でエネを動かす/増やす (ルナアーラex・シャワーズ・ジャローダ・ゼラオラ)
+        if (/move (?:a|all) \{?\w*\}? ?Energy|take a \{\w\} Energy from your Energy Zone|provides 2 \{\w\} Energy/i.test(t)) abilityAccel++;
+        // 特性でにげる/入れ替えが済む (シェイミ・ワタッコ・ソルガレオex・ゲッコウガex)
+        // → スピーダーやリーフを重ねて買う必要がない
+        if (/[Rr]etreat Cost is 1 less|has no Retreat Cost|you may switch it with your Active|switch your Active/i.test(t)) abilityShift++;
+        // 状態異常を受けない特性 (アルセウスex等) → ラムのみ等の解除札は不要
+        if (/can't be affected by any Special Conditions|recovers from all Special Conditions/i.test(t)) abilityStatusImmune = true;
+        // どく打点の上乗せ (ウツロイド「どくで+10」) → どくバリの価値が跳ね上がる
+        if (/takes \+\d+ damage from being Poisoned/i.test(t)) poisonPayoff = true;
       }
     } else {
       const tt = d.tt || "Item";
@@ -511,7 +591,8 @@ function buildTrainerContext({ cards, details, deck, energies = [], cardById, wi
   return {
     types, pokemonNames, aceDmg, aceHp, aceCost, aceRetreat,
     hasStage1, hasStage2, hasMega, allBasic, basicCount, lowHpBasics, toolCount, stadiumCount,
-    benchDamage, coinFix, drawCount, statusMeta, toolSynergy, hasCopycat,
+    benchDamage, coinFix, coinAttacks, energyScaling, drawCount, statusMeta, toolSynergy, hasCopycat,
+    abilityDraw, abilityAccel, abilityShift, abilityStatusImmune, poisonPayoff,
     winKey: winCondition?.key || null,
   };
 }
