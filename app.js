@@ -1037,6 +1037,10 @@ function chatIntent(text) {
   if (rm) return { kind: "remove", name: rm[1].trim() };
   const am = raw.match(/(.+?)\s*(?:を)?\s*(?:いれて|入れて|ついか|追加)/);
   if (am) return { kind: "add", name: am[1].trim() };
+  // 「だれが〜できるの？」のようなデッキへの質問。カード名検索に落とさず、
+  // 実際のデッキの中身を調べて答える
+  const ask = chatAskTopic(t);
+  if (ask) return { kind: "ask", topic: ask };
   if (/おまかせ|まかせ|てきとう|適当|なんでも/.test(t)) return { kind: "core", query: "" };
   // 「水のデッキ」「炎タイプで」のように、タイプを言っていると分かる形だけタイプ指定にする
   // (単に「みずポケモン名」を打っただけの入力をタイプ扱いにしないため)
@@ -1046,6 +1050,124 @@ function chatIntent(text) {
   }
   return { kind: "core", query: raw.trim() };
 }
+/* デッキへの質問を「何について聞かれたか」に落とす。
+ * 疑問符や疑問詞があるのにカード名として検索して「見つからなかった」と返すのが
+ * 一番がっかりする挙動なので、まずここで受け止める。 */
+function chatAskTopic(t) {
+  const isQuestion = /[?？]/.test(t) || /だれ|誰|どれ|どの|なに|何|どこ|いくつ|できる|ある\?|いる\?/.test(t);
+  if (!isQuestion) return null;
+  const TOPICS = [
+    ["status", /じょうたいいじょう|状態異常|どく|毒|ねむり|眠|まひ|麻痺|こんらん|混乱|やけど|火傷|ろっく|ロック/],
+    ["accel", /かそく|加速|えねる|エネル|えね|はる|貼る/],
+    ["snipe", /そげき|狙撃|べんち|ベンチ/],
+    ["tool", /どうぐ|道具/],
+    ["draw", /どろー|ドロー|ひく|引く|さーち|サーチ/],
+    ["heal", /かいふく|回復/],
+    ["gust", /ひきずり|引きずり|よびだ|呼び出/],
+    ["ace", /えーす|エース|しゅりょく|主力|いちばんつよ|一番強|かなめ|要|あたっか|アタッカ|うちてん|打点/],
+    ["weak", /じゃくてん|弱点|よわ|弱|にがて|苦手|きつい/],
+    ["energy", /えねるぎー|エネルギー|いろ|色/],
+    ["count", /なんまい|何枚|まいすう|枚数|うちわけ|内訳|こうせい|構成/],
+  ];
+  for (const [k, re] of TOPICS) if (re.test(t)) return k;
+  return "general";
+}
+
+/* デッキの中身を実際に調べて答える。効果テキストをそのまま根拠として見せる。 */
+function chatAnswer(topic) {
+  const r = chat.result;
+  if (!r) { chatSay("まだデッキが無いよ。主役にしたいポケモンかタイプを教えて！"); return; }
+  const parse = (v) => { const m = String(v ?? "").match(/\d+/); return m ? +m[0] : 0; };
+  const entries = Object.keys(r.deck).map((id) => ({
+    card: state.cardById.get(id), d: state.details.get(id), n: r.deck[id],
+  })).filter((x) => x.card && x.d);
+  const pk = entries.filter((x) => x.d.c === "Pokemon" || x.d.c === "ポケモン");
+
+  // ワザ・特性を横断して、条件に合うものを根拠つきで拾う
+  const findFx = (re) => {
+    const out = [];
+    for (const x of pk) {
+      for (const a of x.d.a || []) {
+        if (re.test(a.e || "")) out.push({ name: x.card.name, kind: "ワザ", label: a.n, dmg: parse(a.d), text: a.e });
+      }
+      for (const ab of x.d.ab || []) {
+        if (re.test(ab.e || "")) out.push({ name: x.card.name, kind: "特性", label: ab.n, text: ab.e });
+      }
+    }
+    return out;
+  };
+  const show = (list, none, lead) => {
+    if (!list.length) { chatSay(none); return; }
+    const rows = list.slice(0, 4).map((h) =>
+      `・<b>${esc(h.name)}</b> の${h.kind}「${esc(h.label || "")}」` +
+      (h.dmg ? `（${h.dmg}打点）` : "") +
+      `<br><span class="chat-dim">${esc(jaEffect ? jaEffect(h.text) : h.text)}</span>`).join("<br>");
+    chatSay(`${lead}<br><br>${rows}`);
+  };
+
+  switch (topic) {
+    case "status":
+      return show(findFx(/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i),
+        "このデッキに状態異常をかけるカードは入ってないよ。勝ち筋は打点で押すタイプ。" +
+        "<br><span class='chat-dim'>入れたいなら「どくバリ入れて」みたいに言ってね。</span>",
+        "状態異常をかけられるのはこの子たち:");
+    case "accel":
+      return show(findFx(/Energy Zone and attach|from your discard pile to|Move (?:a|an|all).{0,24}Energy/i),
+        "エネ加速は入ってないよ。エースが重いなら足すと安定するかも。",
+        "エネルギーを加速できるのは:");
+    case "snipe":
+      return show(findFx(/damage to (?:each of )?your opponent'?s Benched|damage to 1 of your opponent'?s Pokémon/i),
+        "ベンチを直接叩く手段は入ってないよ。", "ベンチを狙えるのは:");
+    case "tool":
+      return show(findFx(/Pokémon Tool/i), "どうぐを参照するカードは入ってないよ。", "どうぐが噛み合うのは:");
+    case "draw":
+      return show(findFx(/draw a card|Draw \d+/i), "特性でのドローは無いから、トレーナーのドローで回すデッキだよ。",
+        "特性で引けるのは:");
+    case "heal":
+      return show(findFx(/[Hh]eal \d+ damage|heal all damage/i), "回復手段は入ってないよ。", "回復できるのは:");
+    case "gust":
+      return show(findFx(/Switch (?:out|in) 1 of your opponent|your opponent'?s Benched/i),
+        "ポケモン側に引きずり出しは無いから、トレーナー(アカギ/ナツメ)の役目だよ。", "引きずり出せるのは:");
+    case "ace": {
+      let best = null;
+      for (const x of pk) for (const a of x.d.a || []) {
+        const dm = parse(a.d);
+        if (!best || dm > best.dmg) best = { name: x.card.name, dmg: dm, cost: (a.c || []).length, atk: a.n, hp: x.d.h, e: a.e };
+      }
+      if (!best) { chatSay("アタッカーが見つからなかった…"); return; }
+      return chatSay(`エースは <b>${esc(best.name)}</b> だよ。<br>` +
+        `ワザ「${esc(best.atk)}」で <b>${best.dmg}打点</b>（${best.cost}エネ / HP${best.hp}）。<br>` +
+        `<span class="chat-dim">${esc(best.e ? (jaEffect ? jaEffect(best.e) : best.e) : "追加効果なし")}</span>`);
+    }
+    case "weak": {
+      const w = {};
+      for (const x of pk) for (const k of x.d.w || []) w[k.t] = (w[k.t] || 0) + x.n;
+      const rows = Object.entries(w).sort((a, b) => b[1] - a[1])
+        .map(([t, n]) => `${typeof jaType === "function" ? jaType(t) : t}に弱いのが${n}枚`).join("、");
+      return chatSay(`弱点はこう: ${esc(rows || "なし")}。<br>` +
+        `<span class="chat-dim">弱点を突かれると+20されるから、同じ弱点が偏っていると苦手なデッキがはっきり出るよ。</span>`);
+    }
+    case "energy": {
+      const es = r.energies.map((t) => (typeof jaType === "function" ? jaType(t) : t)).join("・");
+      return chatSay(`エネルギーは <b>${esc(es)}</b>。<br>` +
+        `<span class="chat-dim">ポケポケは毎ターン登録した色から1個ランダムでもらえる。` +
+        `色を増やすほど欲しい色が来ない番が増えるから、この構成は${r.energies.length === 1 ? "単色で事故りにくい形" : "2色ぶんのブレを見込んだ形"}だよ。</span>`);
+    }
+    case "count": {
+      const { pk: pkStr, tr } = chatDeckRows(r.deck);
+      const pkN = pk.reduce((a, x) => a + x.n, 0);
+      return chatSay(`ポケモン <b>${pkN}枚</b> / トレーナー <b>${20 - pkN}枚</b> だよ。<br><br>` +
+        `<b>ポケモン</b>: ${esc(pkStr)}<br><b>トレーナー</b>: ${esc(tr)}`);
+    }
+    default:
+      return chatSay(
+        `そのデッキについてなら、こんなことに答えられるよ:<br>` +
+        `<span class="chat-dim">「だれが状態異常かけられる？」「エースは？」「弱点は？」「エネルギーは？」` +
+        `「何枚ずつ入ってる？」「なんでその構成？」</span><br><br>` +
+        `直したいときは「もっと硬くして」「カスミ入れて」「ヒトカゲ抜いて」みたいに言ってね。`);
+  }
+}
+
 function chatTypeWord(t) {
   // ひらがな・漢字の両方で拾う (chatKana 済みの文字列を渡す前提)
   const M = [
@@ -1085,6 +1207,7 @@ function chatHandle(text) {
         tanky: "耐久寄りにしてみる🛡", fast: "速さ優先で組むね⚡" }[it.style]);
       chatBuild({}); break;
     case "type": chatSay(`${typeof jaType === "function" ? jaType(it.type) : it.type}タイプで組んでみるね！`); chatBuild({ type: it.type }); break;
+    case "ask": chatAnswer(it.topic); break;
     case "add": chatEdit(it.name, +2); break;
     case "remove": chatEdit(it.name, -2); break;
     default: chatBuild({ query: it.query }); break;
@@ -1111,7 +1234,13 @@ function chatBuild({ query, type, reroll } = {}) {
   if (query) {
     const hit = chatFindCard(query, true);
     if (!hit) {
-      chatSay(`「${esc(query)}」は見つからなかった…<br>カード名の一部でもOKだし、「水のデッキ」みたいなタイプ指定や「おまかせ」でも組めるよ！`);
+      // カード名として解釈できなかった = 質問や雑談の可能性が高い。
+      // 「見つからなかった」で終わらせず、できることを具体的に案内する
+      chatSay(`「${esc(query)}」はカード名としては見つからなかった…<br>` +
+        (chat.result
+          ? `デッキのことなら「だれが状態異常かけられる？」「エースは？」「弱点は？」みたいに聞いてくれれば答えるよ。<br>` +
+            `直すなら「もっと硬くして」「カスミ入れて」もOK！`
+          : `カード名の一部でもいいし、「水のデッキ」「速いデッキがいい」「おまかせ」でも組めるよ！`));
       return;
     }
     chat.core = hit;

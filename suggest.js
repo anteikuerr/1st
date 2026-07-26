@@ -82,45 +82,61 @@ const SUGGEST_WEIGHTS = {
   opener: true, // 1エネで殴り出せるたね先鋒を必ず1種確保する (初動の一貫性)
 };
 
-// 勝ち筋の推定: コアのワザ・特性の効果テキストから「何をして勝つデッキか」を分類。
-// dList = コア(と進化ライン)の details 配列。構築の軸と、ユーザーへの説明に使う。
+/* 勝ち筋の推定。
+ * 【修正前の問題】ライン全体の効果テキストを優先順に見ていたため、
+ * 「130打点＋おまけでどく」のメガジュカインexが【状態異常ロック】と判定されていた。
+ * 状態異常やベンチ狙撃は"添え物"として付いていることが多く、それを勝ち筋と呼ぶと
+ * 説明もサポート選択もズレる。
+ * 【修正後】まず「エース = 一番打点の高いワザ」を特定し、そのエースがどうやって
+ * 点を取るのかを軸に分類する。状態異常や狙撃は、それが主役 (=打点が伴わない) の
+ * ときだけ勝ち筋として採用する。 */
 function inferWinCondition(dList) {
-  const atkTexts = [], abTexts = [];
-  let maxDmg = 0, hasEx = false, cheapHitter = false, big2Cost = false;
+  const parse = (v) => { const m = String(v ?? "").match(/\d+/); return m ? +m[0] : 0; };
+  let ace = null;          // 最大打点のワザ
+  let cheapHitter = false; // 1エネで20以上出せる先鋒がいるか
+  const abTexts = [];
+  const allTexts = [];
   for (const d of dList) {
     if (!d) continue;
     for (const a of d.a || []) {
-      atkTexts.push(a.e || "");
-      const dm = (() => { const m = String(a.d ?? "").match(/\d+/); return m ? +m[0] : 0; })();
-      if (dm > maxDmg) maxDmg = dm;
+      allTexts.push(a.e || "");
+      const dm = parse(a.d);
       const cost = (a.c || []).length;
       if (cost <= 1 && dm >= 20) cheapHitter = true;
-      if (cost >= 2 && cost <= 3 && dm >= 90) big2Cost = true;
+      if (!ace || dm > ace.dmg) ace = { dmg: dm, cost, e: a.e || "" };
     }
-    for (const ab of d.ab || []) abTexts.push(ab.e || "");
+    for (const ab of d.ab || []) { abTexts.push(ab.e || ""); allTexts.push(ab.e || ""); }
   }
-  const all = atkTexts.concat(abTexts).join(" ");
-  hasEx = dList.some((d) => false); // exはカード名側で判定するためここでは使わない
+  ace = ace || { dmg: 0, cost: 0, e: "" };
+  const all = allTexts.join(" ");
   const has = (re) => re.test(all);
+  const aceHas = (re) => re.test(ace.e);
   const T = (key, label, plan) => ({ key, label, plan });
 
-  if (has(/for each Pokémon Tool|has a Pokémon Tool attached/i))
+  // --- 1. エース自身の性質で決まるもの (打点の出し方そのものが勝ち筋) ---
+  if (aceHas(/for each Pokémon Tool attached/i) || has(/for each Pokémon Tool attached/i))
     return T("tool", "どうぐシナジー", "ポケモンのどうぐを並べ、その数で打点を伸ばして殴る");
-  if (has(/Energy Zone and attach (?:it|them)|Take \d+ \{\w\} Energy from your Energy Zone/i) ||
-      abTexts.some((e) => /Energy Zone and attach/i.test(e)))
-    return T("ramp", "エネ加速ランプ", "特性やワザで加速し、重いエースを早く動かして高打点で轢く");
-  if (has(/damage to (?:each of )?your opponent'?s Benched|damage to 1 of your opponent'?s Pokémon/i))
+  // ベンチ狙撃は「エースの攻撃先がベンチ」のときだけ。添え物の狙撃では名乗らない
+  if (aceHas(/damage to (?:each of )?your opponent'?s Benched|damage to 1 of your opponent'?s Pokémon/i))
     return T("snipe", "ベンチ狙撃", "相手のベンチを直接叩き、育つ前のアタッカーを削り切る");
+
+  // --- 2. 盤面を作る手段が勝ち筋になっているもの ---
+  if (abTexts.some((e) => /Energy Zone and attach/i.test(e)) && ace.cost >= 3)
+    return T("ramp", "エネ加速ランプ", "特性で加速し、重いエースを早く動かして高打点で轢く");
+
+  // --- 3. 打点で殴るデッキ (状態異常は"おまけ"として扱う) ---
+  const poisonRider = aceHas(/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i);
+  const rider = poisonRider ? "（おまけで状態異常も入る）" : "";
+  if (ace.dmg >= 140) return T("onehit", "大型一撃", `大型アタッカーの一撃で相手exを確定数で取る${rider}`);
+  if (ace.dmg >= 90 && ace.cost <= 3)
+    return T("midrange", "中速ビートダウン", `2〜3エネの効率打点で1匹ずつ確実に倒す${rider}`);
+
+  // --- 4. 打点が伴わないなら、初めて状態異常/妨害が主役 ---
   if (has(/is now (?:Asleep|Poisoned|Confused|Paralyzed|Burned)/i))
-    return T("status", "状態異常ロック", "ねむり・どく・マヒ等で相手の動きを止めつつ削る");
+    return T("status", "状態異常ロック", "ねむり・どく・マヒ等で相手の動きを止めつつ、じわじわ削る");
   if (has(/Discard (?:a|\d+|an) (?:random )?(?:\{\w\} )?Energy from your opponent|can'?t attack during your opponent/i))
     return T("disrupt", "妨害コントロール", "相手のエネルギーや行動を縛り、テンポ差で勝つ");
-  if (maxDmg >= 140)
-    return T("onehit", "大型一撃", "大型アタッカーの一撃で相手exを確定数で取る");
-  if (cheapHitter)
-    return T("aggro", "アグロ", "軽いワザで先手を取り、テンポで押し切る");
-  if (big2Cost)
-    return T("midrange", "中速ビートダウン", "2〜3エネの効率打点で1匹ずつ確実に倒す");
+  if (cheapHitter) return T("aggro", "アグロ", "軽いワザで先手を取り、テンポで押し切る");
   return T("beatdown", "ビートダウン", "エースの打点で正面から殴り合う");
 }
 
