@@ -129,6 +129,7 @@ function classifyTrainer(card, d, pokeRe) {
   const t = text.replace(/−/g, "-"); // データは全角マイナスを使う箇所がある
   const has = (re) => re.test(t);
   const num = (re) => { const m = t.match(re); return m ? +m[1] : 0; };
+  let m2;
   const e = {
     card, name: card.name, enName: card.enName || card.name, tt, text,
     roles: [], named: extractNamedPokemon(text, pokeRe),
@@ -265,6 +266,28 @@ function classifyTrainer(card, d, pokeRe) {
   }
   if (has(/you get 1 more point/i)) { e.roles.push("boost"); e.extraPoint = true; }
 
+  /* --- 反撃・被弾時のどうぐ (全テキストを読み直して見つかった分類漏れ) ---
+   * ゴツゴツメットは定番の反撃どうぐなのに役割が misc のままで、
+   * 反撃20が一切評価されていなかった。壁役に貼って毎ターン削るのが仕事なので、
+   * 「相手が殴るたびに入る打点」として扱う。 */
+  if ((m2 = t.match(/is damaged by an attack from your opponent'?s Pokémon, do (\d+) damage to the Attacking Pokémon/i))) {
+    e.roles.push("boost"); e.counterDmg = +m2[1];
+  }
+  // ベンチのポケモンへのダメージを完全に防ぐ (まもりのポンチョ)。狙撃対策
+  if (/As long as the Pokémon this card is attached to is on your Bench, prevent all damage/i.test(t)) {
+    e.roles.push("guard"); e.benchShield = true;
+  }
+  // きぜつ時にエネルギーをベンチへ逃がす (でんきコード)
+  if (/is Knocked Out by damage from an attack.*move 2 \{(\w)\} Energy from that Pokémon/i.test(t)) {
+    e.roles.push("recycle"); e.koEnergySave = true;
+  }
+  // 殴られたら相手の手札を1枚山札に戻す (あくのペンダント)
+  if (/is damaged by an attack from your opponent'?s Pokémon, your opponent reveals a random card from their hand and shuffles it/i.test(t)) {
+    e.roles.push("disrupt"); e.counterDisrupt = true;
+  }
+  // 進化前のワザを使えるようにする (メモリーライト)
+  if (/can use any attack from its previous Evolutions/i.test(t)) { e.roles.push("misc"); e.pastAttacks = true; }
+
   // --- 状態異常の解除・付与 ---
   if (has(/recovers from all(?: of them)?|remove a random Special Condition/i)) { e.roles.push("heal"); e.cureStatus = true; }
   if (has(/is now Poisoned/i)) { e.roles.push("boost"); e.passivePoison = true; }
@@ -322,6 +345,21 @@ function evalTrainerFor(e, ctx) {
   }
   if (e.costCut) { s += 45; R.push(`ワザのコストが${e.costCut}軽くなり立ち上がりが早い`); }
   if (e.extraPoint) { s += 70; R.push("倒したときのサイドが1枚増え、必要な打点回数がまるごと減る"); }
+  /* 反撃どうぐ: 相手が殴るたびに入る打点。1試合で2〜3回は誘発する前提で、
+   * 「その累計が確定数を縮めるか」で測る (単発の打点補正より継続性が高い) */
+  if (e.counterDmg) {
+    const total = e.counterDmg * 2.5;
+    s += 20 + confirmGain(ctx.aceDmg, total, false) * 200;
+    R.push(`殴られるたび反撃${e.counterDmg}。放置されると累計で確定数が変わる`);
+  }
+  if (e.benchShield) {
+    // ベンチを削られる展開でだけ価値がある
+    s += ctx.benchDamage ? 40 : 22;
+    R.push("ベンチのポケモンへのダメージを完全に防ぐ");
+  }
+  if (e.koEnergySave) { s += 20; R.push("倒れてもエネルギーをベンチへ逃がして立て直せる"); }
+  if (e.counterDisrupt) { s += 14; R.push("殴られるたび相手の手札を削る"); }
+  if (e.pastAttacks) { s += ctx.hasStage2 || ctx.hasStage1 ? 18 : -1; R.push("進化前の軽いワザも選べるようになる"); }
   if (e.passivePoison) {
     // ウツロイドのような「どく状態の相手に追加ダメージ」特性があると、
     // どくを撒くこと自体が打点計画になる
