@@ -159,6 +159,26 @@ function parseAttackFx(text) {
   // 自分に乗っているダメージ分だけ打点が伸びる (レジギガス等)
   if (/This attack does more damage equal to the damage this Pokémon has on it/i.test(text)) fx.plusSelfDamage = true;
 
+  /* --- 第3弾: 提案デッキに実際に入っているのに素点だけで殴っていたワザ --- */
+  // 取ったサイドの数だけ打点が伸びる (メガライボルトex)。終盤に爆発する
+  if ((m = text.match(/does (\d+) more damage for each point you have gotten/i))) fx.perMyPoint = +m[1];
+  // 味方の{X}ポケモンに好きなように3個加速 (メガサーナイトex)
+  if ((m = text.match(/Take (\d+) \{(\w)\} Energy from your Energy Zone and attach (?:it|them) to your \{\w\} Pokémon in any way you like/i))) {
+    fx.accelSpread = { n: +m[1], type: SIM_ENERGY_LETTER[m[2]] || "Colorless" };
+  }
+  // 相手のワザをコピーして使う (ミュウex)。相手の主力打点を借りる想定で評価する
+  if (/Choose 1 of your opponent'?s Active Pokémon'?s attacks and use it as this attack/i.test(text)) fx.copyAttack = true;
+  // 場のエネルギーを両者から1個ずつ落とす (ギャラドスex)
+  if (/Discard a random Energy from among the Energy attached to all Pokémon \(both yours and your opponent'?s\)/i.test(text)) fx.discardAllBoth = true;
+  // 相手の手札からサポートを抜く (メガアブソルex)
+  if (/Your opponent reveals their hand\. Choose a Supporter card you find there and discard it/i.test(text)) fx.stripSupporter = true;
+  // 自分に乗っているダメージと同じ打点 (ゴマゾウ)。plusSelfDamage とは別物(置き換え型)
+  if (/This attack does damage to your opponent'?s Active Pokémon equal to the damage this Pokémon has on it/i.test(text)) fx.dmgEqualsSelf = true;
+  // バトル場に居る限り打点が累積する (メガクチートex)
+  if ((m = text.match(/Until this Pokémon leaves the Active Spot, this Pokémon'?s .+ attack does \+(\d+) damage/i))) fx.stackWhileActive = +m[1];
+  // コインで相手の手札を1枚山札へ (ゴース)
+  if (/Flip a coin\. If heads, your opponent reveals a random card from their hand and shuffles it into their deck/i.test(text)) fx.bounceHandFlip = true;
+
   /* --- 第2弾: 収録枚数の多い未解釈ワザ --- */
 
   // 自分に複数個まとめて加速 (リザードンex「Take 3 {R} Energy ... to this Pokémon」)。
@@ -402,6 +422,15 @@ function attackEv(dmg, fx) {
   if (fx.counterNext) ev += fx.counterNext * 0.4;
   if (fx.rampNext) ev += fx.rampNext * 0.5;
   if (fx.selfEvolve) ev += 20;                            // 殴りながら進化 = 大きなテンポ
+  // 第3弾
+  if (fx.perMyPoint) ev += fx.perMyPoint * 1.2;           // 平均1.2点取っている想定
+  if (fx.accelSpread) ev += fx.accelSpread.n * 12;
+  if (fx.copyAttack) ev += 45;                            // 相手の主力を借りる
+  if (fx.discardAllBoth) ev += 8;                         // 自分も巻き込むので控えめ
+  if (fx.stripSupporter) ev += 12;
+  if (fx.dmgEqualsSelf) ev += 30;                         // 削られてから撃つ前提
+  if (fx.stackWhileActive) ev += fx.stackWhileActive * 0.8;
+  if (fx.bounceHandFlip) ev += 5;
   if (fx.coinShield) ev += 12;
   if (fx.fullShield) ev += 22;
   if (fx.trapOpp) ev += 10;
@@ -1319,6 +1348,15 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.ifEvolvedNow && me.active.playedTurn === me.turn) dmg += fx.ifEvolvedNow;
         if (fx.ifAllyKod && me.lostLastTurn) dmg += fx.ifAllyKod;
         if (fx.rampNext && me.active.rampUntil === me.turn) dmg += me.active.rampValue || 0;
+        // 第3弾: 盤面から決まる打点
+        if (fx.perMyPoint) dmg += fx.perMyPoint * me.points;
+        if (fx.dmgEqualsSelf) dmg = me.active.damage;
+        if (fx.stackWhileActive) dmg += (me.active.stackDmg || 0);
+        if (fx.copyAttack && op.active) {
+          // 相手のバトルポケモンの最大打点をそのまま借りる
+          const borrowed = Math.max(0, ...(op.active.attacks || []).map((a) => a.dmg || 0));
+          dmg = Math.max(dmg, borrowed);
+        }
 
         // 全体攻撃
         if (fx.hitAll) {
@@ -1434,6 +1472,29 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.costUpNext && op.active) op.active.costUpUntil = turnNo + 1;
         if (fx.counterNext && me.active) { me.active.counterUntil = turnNo + 1; me.active.counterValue = fx.counterNext; }
         if (fx.rampNext && me.active) { me.active.rampUntil = me.turn + 1; me.active.rampValue = fx.rampNext; }
+        if (fx.accelSpread) {
+          for (let k = 0; k < fx.accelSpread.n; k++) {
+            const tgt = board(me).slice().sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0))[0];
+            if (!tgt) break;
+            if (attachEnergy(me, op, tgt, fx.accelSpread.type, turnNo)) return me === A ? 1 : 0;
+          }
+        }
+        if (fx.discardAllBoth) {
+          for (const pl of [me, op]) for (const mon of board(pl)) {
+            if (mon.energy.length) pl.etrash.push(...mon.energy.splice(Math.floor(rng() * mon.energy.length), 1));
+          }
+        }
+        if (fx.stripSupporter) {
+          const k = op.hand.findIndex((x) => x.trainerType === "Supporter");
+          if (k >= 0) op.hand.splice(k, 1);
+        }
+        if (fx.bounceHandFlip && rng() < 0.5 && op.hand.length) {
+          op.deck.push(op.hand.splice(Math.floor(rng() * op.hand.length), 1)[0]);
+        }
+        // バトル場に居る限り打点が累積 (メガクチートex)
+        if (fx.stackWhileActive && me.active) {
+          me.active.stackDmg = (me.active.stackDmg || 0) + fx.stackWhileActive;
+        }
         if (fx.selfEvolve && me.active) {
           const k = me.deck.findIndex((x) => x.pokemon && x.evolvesFrom === me.active.name);
           if (k >= 0) {
