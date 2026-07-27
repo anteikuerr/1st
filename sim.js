@@ -159,6 +159,57 @@ function parseAttackFx(text) {
   // 自分に乗っているダメージ分だけ打点が伸びる (レジギガス等)
   if (/This attack does more damage equal to the damage this Pokémon has on it/i.test(text)) fx.plusSelfDamage = true;
 
+  /* --- 第2弾: 収録枚数の多い未解釈ワザ --- */
+
+  // 自分に複数個まとめて加速 (リザードンex「Take 3 {R} Energy ... to this Pokémon」)。
+  // 既存の accelSelf は「a」(単数) しか見ておらず、一番大きい加速を取りこぼしていた
+  if (!fx.accelSelf && (m = text.match(/Take (\d+) \{(\w)\} Energy from your Energy Zone and attach (?:it|them) to this Pokémon/i))) {
+    fx.accelSelf = SIM_ENERGY_LETTER[m[2]] || "Colorless";
+    fx.accelSelfN = +m[1];
+  }
+  // ベンチの複数体へ加速 (マナフィ「Choose 2 of your Benched Pokémon. For each ...」)
+  if ((m = text.match(/Choose (\d+) of your Benched Pokémon\. For each of those Pokémon, take a \{(\w)\} Energy/i))) {
+    fx.accelBench = { n: +m[1], type: SIM_ENERGY_LETTER[m[2]] || "Colorless", each: true };
+  }
+  // ついているエネルギーの数だけコインを投げ、表の数×N (セレビィex)
+  if ((m = text.match(/Flip a coin for each Energy attached to this Pokémon\. This attack does (\d+) damage for each heads/i))) {
+    fx.coinPerEnergy = +m[1];
+  }
+  // ランダムな相手ポケモンにダメージ (ウミディグダ/ウミトリオex/メガデンリュウex)
+  if ((m = text.match(/1 of your opponent'?s (?:Benched )?Pokémon is chosen at random (\d+) times?\. For each time a Pokémon was chosen, (?:also )?do (\d+) damage/i))) {
+    fx.randomHit = { times: +m[1], dmg: +m[2] };
+  } else if ((m = text.match(/1 of your opponent'?s Pokémon is chosen at random\. Do (\d+) damage to it/i))) {
+    fx.randomHit = { times: 1, dmg: +m[1] };
+  }
+  // 相手の場のエネルギー総数に比例 (エーフィ)
+  if ((m = text.match(/does (\d+) damage for each Energy attached to all of your opponent'?s Pokémon/i))) fx.perAllOppEnergy = +m[1];
+  // 両者のベンチ数に比例 (スイクンex)
+  if ((m = text.match(/does (\d+) damage for each Benched Pokémon \(both yours and your opponent'?s\)/i))) fx.perBothBench = +m[1];
+  // 相手のにげるコストに比例 (エルフーンex)
+  if ((m = text.match(/does (\d+) more damage for each Energy in your opponent'?s Active Pokémon'?s Retreat Cost/i))) fx.perOppRetreat = +m[1];
+  // 相手が特性持ちなら追加 (マギアナ)
+  if ((m = text.match(/If your opponent'?s Active Pokémon has an Ability, this attack does (\d+) more damage/i))) fx.ifOppAbility = +m[1];
+  // この番に進化していれば追加 (サンダース)
+  if ((m = text.match(/If this Pokémon evolved during this turn, this attack does (\d+) more damage/i))) fx.ifEvolvedNow = +m[1];
+  // 前の番に自分のポケモンが倒されていれば追加 (マーシャドー等 10枚)
+  if ((m = text.match(/If any of your Pokémon were Knocked Out by damage from an attack during your opponent'?s last turn, this attack does (\d+) more damage/i))) fx.ifAllyKod = +m[1];
+  // ワザで相手を引きずり出す/下げる (オトスパス)
+  if (/Switch out your opponent'?s Active Pokémon to the Bench/i.test(text)) fx.gustAttack = true;
+  // 手札を1枚捨てるコスト。払えないとワザ自体が不発 (ヤミラミ)
+  if (/Discard a card from your hand\. If you can'?t, this attack does nothing/i.test(text)) fx.handCost = 1;
+  // 相手の行動を縛る (クワガノン=グッズ / コダック=サポート / ジュペッタ=エネルギー)
+  if (/During your opponent'?s next turn, they can'?t play any Item cards/i.test(text)) fx.lockItemNext = true;
+  if (/Your opponent can'?t use any Supporter cards from their hand during their next turn/i.test(text)) fx.lockSupporterNext = true;
+  if (/they can'?t take any Energy from their Energy Zone to attach/i.test(text)) fx.lockEnergyNext = true;
+  // 相手のワザのコストを重くする (ポリゴンZ)
+  if ((m = text.match(/During your opponent'?s next turn, attacks used by the Defending Pokémon cost (\d+) Colorless more/i))) fx.costUpNext = +m[1];
+  // 次の相手の番に殴られたら反撃 (アローラサンドパン)
+  if ((m = text.match(/During your opponent'?s next turn, if this Pokémon is damaged by an attack, do (\d+) damage to the Attacking Pokémon/i))) fx.counterNext = +m[1];
+  // 次の自分の番、このワザの打点が上がる (モトトカゲ/ケケンカニex)
+  if ((m = text.match(/During your next turn, this Pokémon'?s .+ attack does \+(\d+) damage/i))) fx.rampNext = +m[1];
+  // 自分の山札から進化先を引っ張って自己進化 (コイキング)
+  if (/Put a random card from your deck that evolves from this Pokémon onto this Pokémon to evolve it/i.test(text)) fx.selfEvolve = true;
+
   // 条件付き追加打点で、盤面から判定できるもの
   if ((m = text.match(/If you played a Supporter card from your hand during this turn, this attack does (\d+) more damage/i))) fx.ifSupporterPlayed = +m[1];
   if ((m = text.match(/If this Pokémon moved from your Bench to the Active Spot this turn, this attack does (\d+) more damage/i))) fx.ifJustMoved = +m[1];
@@ -308,6 +359,26 @@ function attackEv(dmg, fx) {
   if (fx.plusSelfDamage) ev += 25;          // 削られてから撃つ前提の打点
   if (fx.ifSupporterPlayed) ev += fx.ifSupporterPlayed * 0.7; // ほぼ毎ターン満たせる
   if (fx.ifJustMoved) ev += fx.ifJustMoved * 0.3;
+  // 第2弾の期待値
+  if (fx.accelSelfN) ev += (fx.accelSelfN - 1) * 14;      // accelSelf の +15 に上乗せ
+  if (fx.accelBench?.each) ev += fx.accelBench.n * 10;
+  if (fx.coinPerEnergy) ev = Math.max(ev, fx.coinPerEnergy * 1.5); // エネ3個想定の半分が表
+  if (fx.randomHit) ev += fx.randomHit.times * fx.randomHit.dmg * 0.5;
+  if (fx.perAllOppEnergy) ev += fx.perAllOppEnergy * 3;   // 相手の場に3個想定
+  if (fx.perBothBench) ev += fx.perBothBench * 4;         // 両者ベンチ計4想定
+  if (fx.perOppRetreat) ev += fx.perOppRetreat * 1.3;
+  if (fx.ifOppAbility) ev += fx.ifOppAbility * 0.45;
+  if (fx.ifEvolvedNow) ev += fx.ifEvolvedNow * 0.35;
+  if (fx.ifAllyKod) ev += fx.ifAllyKod * 0.4;
+  if (fx.gustAttack) ev += 18;
+  if (fx.handCost) ev -= 8;                               // 手札を1枚失う
+  if (fx.lockItemNext) ev += 10;
+  if (fx.lockSupporterNext) ev += 14;
+  if (fx.lockEnergyNext) ev += 24;                        // 相手の1ターンを実質奪う
+  if (fx.costUpNext) ev += fx.costUpNext * 12;
+  if (fx.counterNext) ev += fx.counterNext * 0.4;
+  if (fx.rampNext) ev += fx.rampNext * 0.5;
+  if (fx.selfEvolve) ev += 20;                            // 殴りながら進化 = 大きなテンポ
   if (fx.coinShield) ev += 12;
   if (fx.fullShield) ev += 22;
   if (fx.trapOpp) ev += 10;
@@ -409,7 +480,10 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     // 支払い判定の段階で色エネを2倍に数える
     const doubled = mon.abFx?.energyDouble;
     const eff = doubled ? mon.energy.flatMap((t) => [t, t]) : mon.energy;
-    if (eff.length < attack.cost) return false;
+    // 相手のワザで一時的にコストが重くなっている (ポリゴンZ)。
+    // turnNo は同じスコープの let なので、呼ばれる時点では必ず初期化済み
+    const extra = (mon.costUpUntil || -1) >= turnNo ? 1 : 0;
+    if (eff.length < attack.cost + extra) return false;
     const pool = eff.slice();
     for (const t of attack.typed) {
       const i = pool.indexOf(t);
@@ -457,6 +531,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       // バトル場でのきぜつ反動: ワザを使ったポケモン(me.active)にダメージ
       if (ab?.onKoAttacker && me.active) me.active.damage += ab.onKoAttacker;
       if (!denied) me.points += pointsFor(mon, me);
+      op.lostThisTurn = true; // マーシャドー系「前の番に倒されていたら+N」の判定用
       op.active = null;
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
@@ -466,6 +541,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       if (i >= 0) {
         op.bench.splice(i, 1);
         if (!denied) me.points += pointsFor(mon, me);
+        op.lostThisTurn = true;
         if (me.points >= 3) return true;
       }
     }
@@ -684,6 +760,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     const op = turnNo % 2 === 1 ? B : A;
     me.turn++;
     me.supporterUsed = false; // サポートは1ターン1枚
+    me.lostLastTurn = me.lostThisTurn;  // 直前の相手の番で自分のポケモンが倒されたか
+    me.lostThisTurn = false;
 
     if (me.deck.length) me.hand.push(me.deck.shift());
 
@@ -707,6 +785,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       if (!c.trainer) continue;
       const t = c.trainer;
       if (c.trainerType === "Supporter" && me.supporterUsed) continue;
+      // ワザによる封じ (コダック=サポート / クワガノン=グッズ)
+      if (c.trainerType === "Supporter" && me.noSupporterTurn === me.turn) continue;
+      if (c.trainerType === "Item" && me.noItemTurn === me.turn) continue;
       // 相手のバトルポケモンの特性でサポート/スタジアムを封じられている
       if (c.trainerType === "Supporter" && op.active?.abFx?.lockSupporter) continue;
       if (c.trainerType === "Stadium" && op.active?.abFx?.lockStadium) continue;
@@ -1014,8 +1095,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       }
     }
 
-    // エネルギー (先攻の最初の番はなし)
-    if (turnNo !== 1) {
+    // エネルギー (先攻の最初の番はなし / ジュペッタ系のワザで封じられている番もなし)
+    if (turnNo !== 1 && me.noEnergyTurn !== me.turn) {
       const type = me.energies[Math.floor(rng() * me.energies.length)];
       let target = me.active;
       const need = me.active && me.active.attacks.some((a) => !canPay(me.active, a) && a.ev > 0);
@@ -1169,6 +1250,19 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.ifOppStatus && (op.active.poison || op.active.burn || op.active.sleep || op.active.para || op.active.confuse)) dmg += fx.ifOppStatus;
         if (fx.ifSelfDamaged && me.active.damage > 0) dmg += fx.ifSelfDamaged;
         if (fx.ifSelfClean && me.active.damage === 0) dmg += fx.ifSelfClean;
+        // 第2弾: 盤面から決まる追加打点
+        if (fx.coinPerEnergy) {
+          let heads = 0;
+          for (let i = 0; i < me.active.energy.length; i++) if (rng() < 0.5) heads++;
+          dmg = fx.coinPerEnergy * heads;
+        }
+        if (fx.perAllOppEnergy) dmg = fx.perAllOppEnergy * board(op).reduce((a, x) => a + x.energy.length, 0);
+        if (fx.perBothBench) dmg = fx.perBothBench * (me.bench.length + op.bench.length);
+        if (fx.perOppRetreat) dmg += fx.perOppRetreat * (op.active.rc || 0);
+        if (fx.ifOppAbility && op.active.abFx) dmg += fx.ifOppAbility;
+        if (fx.ifEvolvedNow && me.active.playedTurn === me.turn) dmg += fx.ifEvolvedNow;
+        if (fx.ifAllyKod && me.lostLastTurn) dmg += fx.ifAllyKod;
+        if (fx.rampNext && me.active.rampUntil === me.turn) dmg += me.active.rampValue || 0;
 
         // 全体攻撃
         if (fx.hitAll) {
@@ -1218,6 +1312,11 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
             if (me.active.damage >= me.active.hp && knockOut(op, me, me.active)) return op === A ? 1 : 0;
           }
           if ((op.active.tool === "Poison Barb" || op.active.abFx?.counterPoison) && canStatus(me.active)) me.active.poison = true;
+          // ワザで張った反撃 (アローラサンドパン)
+          if ((op.active.counterUntil || -1) >= turnNo && me.active) {
+            me.active.damage += op.active.counterValue || 0;
+            if (me.active.damage >= me.active.hp && knockOut(op, me, me.active)) return me === A ? 0 : 1;
+          }
         }
 
         // 自分への効果
@@ -1244,6 +1343,46 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.draw) me.hand.push(...me.deck.splice(0, fx.draw));
         // 反動: 次の自分の番はこのポケモンで攻撃できない
         if (fx.selfLockNext && me.active) me.active.cantAttackTurn = me.turn + 1;
+        // 第2弾: 盤面への作用
+        if (fx.accelSelfN && me.active) {
+          for (let k = 1; k < fx.accelSelfN; k++) {   // 1個目は既存の accelSelf が処理
+            if (attachEnergy(me, op, me.active, fx.accelSelf, turnNo)) return me === A ? 1 : 0;
+          }
+        }
+        if (fx.accelBench?.each) {
+          const tgts = me.bench.slice().sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0)).slice(0, fx.accelBench.n);
+          for (const t of tgts) if (attachEnergy(me, op, t, fx.accelBench.type, turnNo)) return me === A ? 1 : 0;
+        }
+        if (fx.randomHit) {
+          for (let k = 0; k < fx.randomHit.times; k++) {
+            const pool = board(op);
+            if (!pool.length) break;
+            const tgt = pool[Math.floor(rng() * pool.length)];
+            tgt.damage += fx.randomHit.dmg;
+            if (tgt.damage >= tgt.hp && knockOut(me, op, tgt)) return me === A ? 1 : 0;
+          }
+        }
+        if (fx.gustAttack && op.bench.length && op.active) {
+          const i2 = Math.floor(rng() * op.bench.length);   // 相手が選ぶので無作為
+          const tgt = op.bench.splice(i2, 1)[0];
+          const out = op.active;
+          out.poison = out.burn = out.sleep = out.para = out.confuse = false;
+          op.active = tgt; op.bench.push(out);
+        }
+        if (fx.handCost) me.hand.splice(0, 1);
+        if (fx.lockItemNext) op.noItemTurn = op.turn + 1;
+        if (fx.lockSupporterNext) op.noSupporterTurn = op.turn + 1;
+        if (fx.lockEnergyNext) op.noEnergyTurn = op.turn + 1;
+        if (fx.costUpNext && op.active) op.active.costUpUntil = turnNo + 1;
+        if (fx.counterNext && me.active) { me.active.counterUntil = turnNo + 1; me.active.counterValue = fx.counterNext; }
+        if (fx.rampNext && me.active) { me.active.rampUntil = me.turn + 1; me.active.rampValue = fx.rampNext; }
+        if (fx.selfEvolve && me.active) {
+          const k = me.deck.findIndex((x) => x.pokemon && x.evolvesFrom === me.active.name);
+          if (k >= 0) {
+            const evo = me.deck.splice(k, 1)[0];
+            me.active = { ...inst(evo, me.turn), energy: me.active.energy, damage: me.active.damage };
+          }
+        }
         // 自傷の状態異常 (カビゴンのねむる等)。相手の付与と同じ扱いで自分に乗せる
         if (fx.selfSleep && canStatus(me.active)) me.active.sleep = true;
         if (fx.selfConfuse && canStatus(me.active)) me.active.confuse = true;
