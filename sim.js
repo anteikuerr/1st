@@ -168,6 +168,53 @@ function parseAttackFx(rawText) {
   // 自分に乗っているダメージ分だけ打点が伸びる (レジギガス等)
   if (/This attack does more damage equal to the damage this Pokémon has on it/i.test(text)) fx.plusSelfDamage = true;
 
+  /* --- 第5弾: 全テキスト再読で残っていた実装可能なもの --- */
+  // 複数コインの全表ボーナス (キングラー等)
+  if ((m = text.match(/Flip (\d+) coins\. If (?:both|all) of them are heads, this attack does (\d+) more damage/i))) {
+    fx.allHeadsBonus = { n: +m[1], amount: +m[2] };
+  }
+  // 複数コインの全表できぜつ (キテルグマ)
+  if ((m = text.match(/Flip (\d+) coins\. If (?:both|all) of them are heads, your opponent'?s Active Pokémon is Knocked Out/i))) {
+    fx.allHeadsKo = +m[1];
+  }
+  // ワザでドロー (ニャース等)。既存の fx.draw は文頭限定だったので明示的に拾う
+  if (/(?:^|\. )Draw 1 card\.?/i.test(text)) fx.draw = (fx.draw || 0) + 1;
+  // 相手だけワザが不発になる (マタドガス/オクタン)。実質的なロック
+  if (/if the Defending Pokémon tries to use an attack, your opponent flips a coin\. If tails, that attack doesn'?t happen/i.test(text)) {
+    fx.flipLockOpp = true;
+  }
+  // たね限定のワザ封じ (ブラッキー)
+  if (/If the Defending Pokémon is a Basic Pokémon, it can'?t attack during your opponent'?s next turn/i.test(text)) fx.lockAttackBasic = true;
+  // 相手のどうぐを剥がす (ムックル/チョロネコ)
+  if (/discard all Pokémon Tools from your opponent'?s Active Pokémon/i.test(text)) fx.stripTools = true;
+  // 両者のバトル場からエネを落とす (オドリドリ)
+  if (/Discard a random Energy from both Active Pokémon/i.test(text)) fx.discardBothActive = true;
+  // 自分をベンチと入れ替える色指定版 (カプ・コケコ)
+  if (/Switch this Pokémon with 1 of your Benched \{?\w*\}? ?Pokémon/i.test(text)) fx.selfSwitch = true;
+  // ランダムな状態異常を付与 (アローラベトベトンex)
+  if (/1 Special Condition from among .* is chosen at random/i.test(text)) fx.randomStatus = true;
+  // 自分が受けるダメージが増える代わりの大技 (ジャラランガ)
+  if ((m = text.match(/During your opponent'?s next turn, this Pokémon takes \+(\d+) damage from attacks/i))) fx.fragileNext = +m[1];
+  // 好きな状態異常を選んで付与 (ドクケイル)
+  if (/Choose either Poisoned or Confused/i.test(text)) fx.poison = true;
+  // 両者が状態異常になる (パッチール/ムシャーナ)
+  if (/Both Active Pokémon are now Confused/i.test(text)) { fx.confuse = true; fx.selfConfuse = true; }
+  if (/Both Active Pokémon are now Asleep/i.test(text)) { fx.sleep = true; fx.selfSleep = true; }
+  // 相手の特性を消す (スボミー)
+  if (/The Defending Pokémon loses all Abilities/i.test(text)) fx.silenceOpp = true;
+  // 相手を退化させる (セレビィ)
+  if (/devolve it by putting the highest Stage Evolution card on it into your opponent'?s hand/i.test(text)) fx.devolve = true;
+  // 自分を山札へ戻す (ワタシラガ/レパルダス)
+  if (/[Ss]huffle this Pokémon (?:and all attached cards )?into your deck/i.test(text)) fx.selfBounce = true;
+  // 相手の手札をランダムに山札へ (アマージョ/レパルダス等)
+  if (/Your opponent reveals a random card from their hand and shuffles it into their deck/i.test(text)) fx.bounceHand = true;
+  // 相手の手札からランダムに1枚トラッシュ (ヘルガー/アローララッタ)
+  if (/Discard a random (?:Item |Pokémon Tool )?card from your opponent'?s hand/i.test(text)) fx.discardOppHand = true;
+  // 条件を満たすとワザが軽くなる (パルスワン)
+  if (/If this Pokémon has damage on it, this attack can be used for 1 \{(\w)\} Energy/i.test(text)) fx.cheapWhenHurt = true;
+  // 相手のバトル場を手札/山札へ戻す (スピンロトム/プテラ)
+  if (/put your opponent'?s Active Pokémon into their hand|your opponent shuffles their Active Pokémon back into their deck/i.test(text)) fx.bounceOppActive = true;
+
   /* --- 第4弾: 「条件付き追加打点」を汎用の枠組みで扱う ---
    * 全テキストを読み直したところ、未解釈202種のうち約4割が
    * 「If <条件>, this attack does N more damage」という同じ形をしていた。
@@ -548,6 +595,22 @@ function attackEv(dmg, fx) {
   if (fx.perOppAbility) ev += fx.perOppAbility * 1.0;
   if (fx.perEnergyType) ev += fx.perEnergyType * 1.3;
   if (fx.perTeamEnergy) ev += fx.perTeamEnergy.per * 3;
+  // 第5弾
+  if (fx.allHeadsBonus) ev += fx.allHeadsBonus.amount * Math.pow(0.5, fx.allHeadsBonus.n);
+  if (fx.allHeadsKo) ev += 60 * Math.pow(0.5, fx.allHeadsKo);
+  if (fx.flipLockOpp) ev += 30;              // 相手の攻撃が半分の確率で不発
+  if (fx.lockAttackBasic) ev += 12;
+  if (fx.stripTools) ev += 8;
+  if (fx.discardBothActive) ev += 4;         // 自分も落ちるので控えめ
+  if (fx.randomStatus) ev += 16;
+  if (fx.fragileNext) ev -= fx.fragileNext * 0.5;
+  if (fx.silenceOpp) ev += 14;
+  if (fx.devolve) ev += 30;
+  if (fx.selfBounce) ev -= 10;               // 盤面から消えるのはテンポ損
+  if (fx.bounceHand) ev += 6;
+  if (fx.discardOppHand) ev += 8;
+  if (fx.cheapWhenHurt) ev += 10;
+  if (fx.bounceOppActive) ev += 25;
   if (fx.coinShield) ev += 12;
   if (fx.fullShield) ev += 22;
   if (fx.trapOpp) ev += 10;
@@ -1394,6 +1457,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           return b;
         };
 
+        // 相手のワザで「コインがウラなら攻撃が不発」にされている (マタドガス/オクタン)
+        if ((me.active.flipLockUntil || -1) >= turnNo && rng() < 0.5) return null;
         // 「場に出て最初の攻撃か」の判定用。条件評価より後に立てないと常に false になる
         const wasFirstAttack = me.active && !me.active.hasAttacked;
         const resolveHit = (baseDmg) => {
@@ -1509,6 +1574,11 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           if (ok) dmg += cb.amount;
         }
         if (me.active) me.active.hasAttacked = true;
+        if (fx.allHeadsBonus) {
+          let all = true;
+          for (let i = 0; i < fx.allHeadsBonus.n; i++) if (rng() >= 0.5) all = false;
+          if (all) dmg += fx.allHeadsBonus.amount;
+        }
         if (fx.perEvoBench) dmg += fx.perEvoBench * me.bench.filter((x) => x.evolvesFrom).length;
         if (fx.perOppAbility) dmg += fx.perOppAbility * board(op).filter((x) => x.abFx).length;
         if (fx.perEnergyType) dmg += fx.perEnergyType * new Set(me.active.energy).size;
@@ -1669,6 +1739,42 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.dumpEnergyToBench && me.active && me.bench.length) {
           const tgt = me.bench.slice().sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0))[0];
           tgt.energy.push(...me.active.energy.splice(0));
+        }
+        // 第5弾: 盤面への作用
+        if (fx.allHeadsKo && op.active) {
+          let all = true;
+          for (let i = 0; i < fx.allHeadsKo; i++) if (rng() >= 0.5) all = false;
+          if (all) { op.active.damage = op.active.hp; if (knockOut(me, op, op.active)) return me === A ? 1 : 0; }
+        }
+        if (fx.flipLockOpp && op.active) op.active.flipLockUntil = turnNo + 1;
+        if (fx.lockAttackBasic && op.active?.basic) op.active.noAttackTurn = op.turn + 1;
+        if (fx.stripTools && op.active) op.active.tool = null;
+        if (fx.discardBothActive) for (const pl of [me, op]) {
+          const a2 = pl.active;
+          if (a2?.energy.length) pl.etrash.push(...a2.energy.splice(Math.floor(rng() * a2.energy.length), 1));
+        }
+        if (fx.randomStatus && op.active && canStatus(op.active)) {
+          const opts = ["sleep", "burn", "confuse", "para", "poison"];
+          op.active[opts[Math.floor(rng() * opts.length)]] = true;
+        }
+        if (fx.fragileNext && me.active) { me.active.shieldUntil = turnNo + 1; me.active.shieldValue = -fx.fragileNext; }
+        if (fx.silenceOpp && op.active) op.active.abFx = null;
+        if (fx.devolve && op.active?.evolvesFrom) {
+          const base = { ...op.active, name: op.active.evolvesFrom, hp: Math.max(60, op.active.hp - 60),
+            evolvesFrom: null, stage2: false, abFx: null };
+          op.active = base;
+        }
+        if (fx.bounceHand && op.hand.length) op.deck.push(op.hand.splice(Math.floor(rng() * op.hand.length), 1)[0]);
+        if (fx.discardOppHand && op.hand.length) op.hand.splice(Math.floor(rng() * op.hand.length), 1);
+        if (fx.bounceOppActive && op.active && op.bench.length) {
+          op.deck.push(op.active);
+          op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
+          op.active = op.bench.shift();
+        }
+        if (fx.selfBounce && me.active && me.bench.length) {
+          me.deck.push(me.active);
+          me.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
+          me.active = me.bench.shift();
         }
         if (fx.noWeaknessNext && me.active) me.active.noWeakUntil = turnNo + 1;
         if (fx.shieldVsBasic && me.active) me.active.basicShieldUntil = turnNo + 1;
