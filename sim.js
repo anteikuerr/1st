@@ -24,8 +24,17 @@ function mulberry32(seed) {
 const SIM_ENERGY_LETTER = { G: "Grass", R: "Fire", W: "Water", L: "Lightning", P: "Psychic", F: "Fighting", D: "Darkness", M: "Metal" };
 
 // ワザの効果テキスト(英語)を解析して構造化する
-function parseAttackFx(text) {
-  if (!text) return null;
+function parseAttackFx(rawText) {
+  if (!rawText) return null;
+  /* 収録データには表記ゆれがある。読み落とすと「条件が無い素のワザ」に見えてしまうので、
+   * 解析前に正規化する:
+   *   - 「80  more damage」のような二重スペース
+   *   - アクセント無しの "Pokemon" (公式データ内で混在)
+   *   - エネルギーが {M} ではなく [M] と角括弧で書かれている行 */
+  const text = String(rawText)
+    .replace(/\s{2,}/g, " ")
+    .replace(/Pokemon/g, "Pokémon")
+    .replace(/\[([GRWLPFDMC])\]/g, "{$1}");
   const fx = {};
   let m;
   if ((m = text.match(/Flip (\d+) coins?\. This attack does (\d+)( more)? damage for each heads/i))) {
@@ -158,6 +167,88 @@ function parseAttackFx(text) {
 
   // 自分に乗っているダメージ分だけ打点が伸びる (レジギガス等)
   if (/This attack does more damage equal to the damage this Pokémon has on it/i.test(text)) fx.plusSelfDamage = true;
+
+  /* --- 第4弾: 「条件付き追加打点」を汎用の枠組みで扱う ---
+   * 全テキストを読み直したところ、未解釈202種のうち約4割が
+   * 「If <条件>, this attack does N more damage」という同じ形をしていた。
+   * 条件ごとに正規表現を足していくと際限がないので、条件を key に落として
+   * ダメージ計算側で一括評価する。盤面から判定できない条件 (山札の中身・
+   * ターンを跨ぐカウンタ) は意図的に拾わない ——
+   * 拾って常に false 扱いにすると、そのワザを過小評価してしまうため。 */
+  const COND = [
+    [/If your opponent'?s Active Pokémon is an? (?:Evolution|evolved) Pokémon/i, "oppEvolved"],
+    [/If your opponent'?s Active Pokémon has more remaining HP than this Pokémon/i, "oppHigherHp"],
+    [/If your opponent'?s Active Pokémon is Burned/i, "oppBurned"],
+    [/If your opponent'?s Active Pokémon is Confused/i, "oppConfused"],
+    [/If this Pokémon'?s remaining HP is (\d+) or less/i, "selfHpLow"],
+    [/If a Stadium is in play/i, "stadiumInPlay"],
+    [/If this Pokémon has any \{(\w)\} Energy attached/i, "selfHasEnergy"],
+    [/If this Pokémon has (\d+) or more different types of Energy attached/i, "selfEnergyTypes"],
+    [/If any of your Benched Pokémon have damage on them/i, "benchDamaged"],
+    [/If you have fewer Pokémon in play than your opponent/i, "fewerPokemon"],
+    [/If your opponent has gotten exactly (\d+) point/i, "oppPoints"],
+    [/If the amount of Energy attached to both Active Pokémon is (\d+) or more/i, "bothEnergy"],
+    [/If you have (\d+) or more \{(\w)\} Energy in play/i, "myEnergyInPlay"],
+    [/If your opponent'?s Active Pokémon is a \{(\w)\} Pokémon/i, "oppType"],
+    [/If you have exactly ([\d, or]+) cards in your hand/i, "handExact"],
+    [/If (\w+) is on your Bench/i, "namedOnBench"],
+    [/If your opponent'?s Active Pokémon is Asleep/i, "oppAsleep"],
+    [/If your opponent'?s Active Pokémon has a Pokémon Tool attached/i, "oppHasTool"],
+    [/If this Pokémon has more Energy attached than your opponent'?s Active Pokémon/i, "moreEnergyThanOpp"],
+    [/If your opponent has exactly ([\d, or]+) cards in their hand/i, "oppHandExact"],
+    [/If your Pokémon in play have (\d+) or more different types of Energy attached/i, "teamEnergyTypes"],
+    [/If you have any Stage 2 Pokémon on your Bench/i, "stage2OnBench"],
+    [/If your opponent has any \{(\w)\} Pokémon in play/i, "oppHasType"],
+    [/If this Pokémon evolved from (\w+) during this turn/i, "evolvedFromNow"],
+    [/If this is the first time this Pokémon has used an attack after coming into play/i, "firstAttack"],
+  ];
+  // 「〜の数だけ+N」系 (条件ではなく比例)
+  if ((m = text.match(/does (\d+) more damage for each Evolution Pokémon on your Bench/i))) fx.perEvoBench = +m[1];
+  if ((m = text.match(/does (\d+) more damage for each of your opponent'?s Pokémon in play that has an Ability/i))) fx.perOppAbility = +m[1];
+  if ((m = text.match(/does (\d+) more damage for each type of Energy attached to this Pokémon/i))) fx.perEnergyType = +m[1];
+  if ((m = text.match(/does (\d+) more damage for each \{(\w)\} Energy attached to all of your Pokémon/i))) {
+    fx.perTeamEnergy = { per: +m[1], type: SIM_ENERGY_LETTER[m[2]] || null };
+  }
+  for (const [re, key] of COND) {
+    const mm = text.match(new RegExp(re.source + "[^.]*?this attack does (\\d+)\\s*more damage", "i"));
+    if (mm) {
+      (fx.condBonus = fx.condBonus || []).push({
+        key, amount: +mm[mm.length - 1], arg: mm[1] !== mm[mm.length - 1] ? mm[1] : null,
+      });
+    }
+  }
+  // 自分のベンチにも飛ぶダメージ (レントラー/サンダー/ナマズン/マンムー/エモンガ)。
+  // 読み落とすと「デメリット無しの範囲攻撃」に見えてしまう
+  if ((m = text.match(/This attack also does (\d+) damage to each of your Benched Pokémon/i))) fx.selfBenchAll = +m[1];
+  else if ((m = text.match(/This attack also does (\d+) damage to 1 of your (?:Benched )?Pokémon/i))) fx.selfBenchOne = +m[1];
+  // 味方全体・ベンチの回復 (メガタブンネex/フラージェス/ホウオウ/ルリリ/ラッキー)
+  if ((m = text.match(/Heal (\d+) damage from each of your (?:Benched Basic )?Pokémon/i))) fx.healTeam = +m[1];
+  else if ((m = text.match(/Heal (\d+) damage from 1 of your (?:Benched )?Pokémon/i))) fx.healOne = +m[1];
+  // 弱点を受けない/与えない (エビワラーex/ハガネール/メガハガネールex)
+  if (/This attack'?s damage isn'?t affected by Weakness/i.test(text)) fx.ignoreWeakness = true;
+  if (/this Pokémon has no Weakness/i.test(text)) fx.noWeaknessNext = true;
+  // 場のポケモン数だけコインを投げる (グレッグル/ドクロッグ)
+  if ((m = text.match(/Flip a coin for each Pokémon you have in play\. This attack does (\d+) damage for each heads/i))) fx.coinPerPokemon = +m[1];
+  // 相手のHPを半分に / 10にする (ビッパ/ネイティオ)
+  if (/Halve your opponent'?s Active Pokémon'?s remaining HP/i.test(text)) fx.halveOpp = true;
+  if (/your opponent'?s Active Pokémon'?s remaining HP is now 10/i.test(text)) fx.setOppHp10 = true;
+  // 自分のエネをベンチへ移す (スワンナ/ムウマージ/モルペコ)
+  if (/Move (?:all|2) \{?\w*\}? ?Energy from this Pokémon to 1 of your Benched/i.test(text)) fx.dumpEnergyToBench = true;
+  // ベンチへの色指定加速 (パチリス) / 自分への加速 (メルタン)
+  if ((m = text.match(/Take an? \[(\w)\] Energy from your Energy Zone and attach it to 1 of your Benched/i))) {
+    fx.accelBench = { n: 1, type: SIM_ENERGY_LETTER[m[1]] || "Colorless" };
+  }
+  if ((m = text.match(/Take 1 \[(\w)\] Energy from your Energy Zone and attach it to this Pokémon/i))) {
+    fx.accelSelf = SIM_ENERGY_LETTER[m[1]] || "Colorless";
+  }
+  // 手札のどうぐを捨てて打点に変える (ヤドキング)
+  if ((m = text.match(/Discard up to 2 Pokémon Tool cards from your hand\. This attack does (\d+) damage for each card/i))) fx.toolFuel = +m[1];
+  // ダメージを与えたぶん自分を回復 (カブトプス)
+  if (/Heal from this Pokémon the same amount of damage you did/i.test(text)) fx.drain = true;
+  // 自分に乗ったダメージのぶん打点が下がる (ゼルネアス)
+  if (/This attack'?s damage is reduced by the amount of damage this Pokémon has on it/i.test(text)) fx.minusSelfDamage = true;
+  // たねポケモンからのダメージを無効 (アバゴーラ)
+  if (/Prevent all damage done to this Pokémon by attacks from Basic Pokémon/i.test(text)) fx.shieldVsBasic = true;
 
   /* --- 第3弾: 提案デッキに実際に入っているのに素点だけで殴っていたワザ --- */
   // 取ったサイドの数だけ打点が伸びる (メガライボルトex)。終盤に爆発する
@@ -431,6 +522,32 @@ function attackEv(dmg, fx) {
   if (fx.dmgEqualsSelf) ev += 30;                         // 削られてから撃つ前提
   if (fx.stackWhileActive) ev += fx.stackWhileActive * 0.8;
   if (fx.bounceHandFlip) ev += 5;
+  // 第4弾: 条件付き打点は「満たせる確率」を条件ごとに見積もる
+  if (fx.condBonus) for (const cb of fx.condBonus) {
+    const P = { oppEvolved: .5, oppHigherHp: .45, oppBurned: .12, oppConfused: .12,
+      selfHpLow: .3, stadiumInPlay: .2, selfHasEnergy: .75, selfEnergyTypes: .25,
+      benchDamaged: .4, fewerPokemon: .25, oppPoints: .3, bothEnergy: .3,
+      myEnergyInPlay: .35, oppType: .12, handExact: .3, namedOnBench: .35 }[cb.key] ?? .3;
+    ev += cb.amount * P;
+  }
+  if (fx.selfBenchAll) ev -= fx.selfBenchAll * 1.2;   // 自分のベンチ全体が削れる
+  if (fx.selfBenchOne) ev -= fx.selfBenchOne * 0.5;
+  if (fx.healTeam) ev += fx.healTeam * 0.8;
+  if (fx.healOne) ev += fx.healOne * 0.35;
+  if (fx.ignoreWeakness) ev -= 4;                     // 弱点を突けない小さな損
+  if (fx.noWeaknessNext) ev += 8;
+  if (fx.coinPerPokemon) ev = Math.max(ev, fx.coinPerPokemon * 1.5);
+  if (fx.halveOpp) ev += 40;
+  if (fx.setOppHp10) ev += 35;                        // コイン込みの期待値
+  if (fx.dumpEnergyToBench) ev -= 6;
+  if (fx.toolFuel) ev += fx.toolFuel * 0.5;
+  if (fx.drain) ev += dmg * 0.35;
+  if (fx.minusSelfDamage) ev -= 15;
+  if (fx.shieldVsBasic) ev += 12;
+  if (fx.perEvoBench) ev += fx.perEvoBench * 1.2;
+  if (fx.perOppAbility) ev += fx.perOppAbility * 1.0;
+  if (fx.perEnergyType) ev += fx.perEnergyType * 1.3;
+  if (fx.perTeamEnergy) ev += fx.perTeamEnergy.per * 3;
   if (fx.coinShield) ev += 12;
   if (fx.fullShield) ev += 22;
   if (fx.trapOpp) ev += 10;
@@ -611,6 +728,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     if (def.abFx?.reduce) out -= def.abFx.reduce;
     if (def.abFx?.reduceFlip && rng() < 0.5) out -= def.abFx.reduceFlip; // ヒスイヌメルゴン等
     if (def.abFx?.coinPrevent && rng() < 0.5) return 0;                   // トゲキッス
+    if ((def.basicShieldUntil || -1) >= turnNo && attacker?.basic) return 0; // アバゴーラ
     if (def.shieldUntil >= turnNo) out -= def.shieldValue;
     return Math.max(0, out);
   };
@@ -1276,6 +1394,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           return b;
         };
 
+        // 「場に出て最初の攻撃か」の判定用。条件評価より後に立てないと常に false になる
+        const wasFirstAttack = me.active && !me.active.hasAttacked;
         const resolveHit = (baseDmg) => {
           // 1回分の攻撃解決。勝敗が決まったら 'A' か 'B' を返す
           let dmg = baseDmg;
@@ -1283,9 +1403,11 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
             dmg += boost();
             // スタジアム: トレーニングエリア (1進化ポケモンのワザ+10、お互い)
             if (stadium?.key === "Training Area" && me.active.evolvesFrom && !me.active.stage2) dmg += 10;
-            if (op.active.weakness && (me.active.types || []).includes(op.active.weakness)) dmg += 20;
+            if (op.active.weakness && (me.active.types || []).includes(op.active.weakness) &&
+                !fx.ignoreWeakness && (op.active.noWeakUntil || -1) < turnNo) dmg += 20;
             dmg = applyReduction(op.active, dmg, turnNo, me.active);
             op.active.damage += dmg;
+            if (fx?.drain && me.active) me.active.damage = Math.max(0, me.active.damage - dmg);
             if (op.active.damage >= op.active.hp) {
               if (knockOut(me, op, op.active)) return me === A ? "A" : "B";
             }
@@ -1352,6 +1474,61 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.perMyPoint) dmg += fx.perMyPoint * me.points;
         if (fx.dmgEqualsSelf) dmg = me.active.damage;
         if (fx.stackWhileActive) dmg += (me.active.stackDmg || 0);
+        // 第4弾: 条件付き打点を盤面で判定
+        if (fx.condBonus) for (const cb of fx.condBonus) {
+          const A = me.active, O = op.active;
+          const arg = cb.arg;
+          let ok = false;
+          switch (cb.key) {
+            case "oppEvolved": ok = !!O.evolvesFrom; break;
+            case "oppHigherHp": ok = (O.hp - O.damage) > (A.hp - A.damage); break;
+            case "oppBurned": ok = !!O.burn; break;
+            case "oppConfused": ok = !!O.confuse; break;
+            case "selfHpLow": ok = (A.hp - A.damage) <= +arg; break;
+            case "stadiumInPlay": ok = !!stadium; break;
+            case "selfHasEnergy": ok = A.energy.includes(SIM_ENERGY_LETTER[arg] || arg); break;
+            case "selfEnergyTypes": ok = new Set(A.energy).size >= +arg; break;
+            case "benchDamaged": ok = me.bench.some((x) => x.damage > 0); break;
+            case "fewerPokemon": ok = board(me).length < board(op).length; break;
+            case "oppPoints": ok = op.points === +arg; break;
+            case "bothEnergy": ok = (A.energy.length + O.energy.length) >= +arg; break;
+            case "myEnergyInPlay": ok = board(me).reduce((a, x) => a + x.energy.length, 0) >= +arg; break;
+            case "oppType": ok = (O.types || []).includes(SIM_ENERGY_LETTER[arg] || arg); break;
+            case "namedOnBench": ok = me.bench.some((x) => x.name === arg || x.enName === arg); break;
+            case "oppAsleep": ok = !!O.sleep; break;
+            case "oppHasTool": ok = !!O.tool; break;
+            case "moreEnergyThanOpp": ok = A.energy.length > O.energy.length; break;
+            case "oppHandExact": ok = String(arg || "").split(/[,\s]+or\s*|,\s*/).map(Number).includes(op.hand.length); break;
+            case "teamEnergyTypes": ok = new Set(board(me).flatMap((x) => x.energy)).size >= +arg; break;
+            case "stage2OnBench": ok = me.bench.some((x) => x.stage2); break;
+            case "oppHasType": ok = board(op).some((x) => (x.types || []).includes(SIM_ENERGY_LETTER[arg] || arg)); break;
+            case "evolvedFromNow": ok = A.playedTurn === me.turn && A.evolvesFrom === arg; break;
+            case "firstAttack": ok = wasFirstAttack; break;
+            default: ok = false;
+          }
+          if (ok) dmg += cb.amount;
+        }
+        if (me.active) me.active.hasAttacked = true;
+        if (fx.perEvoBench) dmg += fx.perEvoBench * me.bench.filter((x) => x.evolvesFrom).length;
+        if (fx.perOppAbility) dmg += fx.perOppAbility * board(op).filter((x) => x.abFx).length;
+        if (fx.perEnergyType) dmg += fx.perEnergyType * new Set(me.active.energy).size;
+        if (fx.perTeamEnergy) {
+          const n = board(me).reduce((a2, x) => a2 + (fx.perTeamEnergy.type
+            ? x.energy.filter((t) => t === fx.perTeamEnergy.type).length : x.energy.length), 0);
+          dmg += fx.perTeamEnergy.per * n;
+        }
+        if (fx.minusSelfDamage) dmg = Math.max(0, dmg - me.active.damage);
+        if (fx.coinPerPokemon) {
+          let h = 0; for (let i = 0; i < board(me).length; i++) if (rng() < 0.5) h++;
+          dmg = fx.coinPerPokemon * h;
+        }
+        if (fx.toolFuel) {
+          let used = 0;
+          for (let k = me.hand.length - 1; k >= 0 && used < 2; k--) {
+            if (me.hand[k].trainerType === "Tool") { me.hand.splice(k, 1); used++; }
+          }
+          dmg = fx.toolFuel * used;
+        }
         if (fx.copyAttack && op.active) {
           // 相手のバトルポケモンの最大打点をそのまま借りる
           const borrowed = Math.max(0, ...(op.active.attacks || []).map((a) => a.dmg || 0));
@@ -1472,6 +1649,29 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (fx.costUpNext && op.active) op.active.costUpUntil = turnNo + 1;
         if (fx.counterNext && me.active) { me.active.counterUntil = turnNo + 1; me.active.counterValue = fx.counterNext; }
         if (fx.rampNext && me.active) { me.active.rampUntil = me.turn + 1; me.active.rampValue = fx.rampNext; }
+        // 第4弾: 自分側への副作用と回復
+        if (fx.selfBenchAll) for (const x of me.bench.slice()) {
+          x.damage += fx.selfBenchAll;
+          if (x.damage >= x.hp && knockOut(op, me, x)) return me === A ? 0 : 1;
+        }
+        if (fx.selfBenchOne && me.bench.length) {
+          const x = me.bench[Math.floor(rng() * me.bench.length)];
+          x.damage += fx.selfBenchOne;
+          if (x.damage >= x.hp && knockOut(op, me, x)) return me === A ? 0 : 1;
+        }
+        if (fx.healTeam) for (const x of board(me)) x.damage = Math.max(0, x.damage - fx.healTeam);
+        if (fx.healOne) {
+          const x = board(me).filter((y) => y.damage > 0).sort((a2, b2) => b2.damage - a2.damage)[0];
+          if (x) x.damage = Math.max(0, x.damage - fx.healOne);
+        }
+        if (fx.halveOpp && op.active) op.active.damage += Math.floor((op.active.hp - op.active.damage) / 2);
+        if (fx.setOppHp10 && op.active && rng() < 0.5) op.active.damage = Math.max(0, op.active.hp - 10);
+        if (fx.dumpEnergyToBench && me.active && me.bench.length) {
+          const tgt = me.bench.slice().sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0))[0];
+          tgt.energy.push(...me.active.energy.splice(0));
+        }
+        if (fx.noWeaknessNext && me.active) me.active.noWeakUntil = turnNo + 1;
+        if (fx.shieldVsBasic && me.active) me.active.basicShieldUntil = turnNo + 1;
         if (fx.accelSpread) {
           for (let k = 0; k < fx.accelSpread.n; k++) {
             const tgt = board(me).slice().sort((x, y) => (bestPotential(y) || 0) - (bestPotential(x) || 0))[0];
