@@ -300,6 +300,29 @@ function parseAbilityFx(text) {
   if (/Prevent all damage done to this Pokémon by attacks from your opponent'?s Pokémon ex/i.test(text)) fx.exImmune = true;
   // 相手の進化を止める (プテラex)
   if (/Your opponent can'?t play any Pokémon from their hand to evolve/i.test(text)) fx.lockEvolve = true;
+  // エネルギーをまとめて前に移す (ルナアーラex 7枚)。重いエースを一気に起動できる
+  if (/Once during your turn, you may move all \{(\w)\} Energy from 1 of your Benched/i.test(text)) fx.energyBulkMove = true;
+  // トラッシュから貼り直しつつ削る (ブースターex 5枚)
+  if ((m = text.match(/Once during your turn, you may attach a \{(\w)\} Energy from your discard pile to this Pokémon\. If you do, do (\d+) damage/i))) {
+    fx.recycleAccel = { type: SIM_ENERGY_LETTER[m[1]] || "Colorless", dmg: +m[2] };
+  }
+  // ベンチに居るだけで味方のにげるコストを軽くする (シェイミ/ワタッコ/シャリタツ 10枚)
+  if (/your Active (?:Basic )?Poke?[ée]?mon'?s Retreat Cost is 1 less|Your Active Pokémon has no Retreat Cost|Your Active \w+ has no Retreat Cost/i.test(text)) fx.teamRetreatCut = true;
+  // 相手のワザを重くする (ムーランド 3枚)
+  if (/attacks used by your opponent'?s Active Pokémon cost (\d+) Colorless more/i.test(text)) fx.oppCostUp = true;
+  // 自分の番に1回、コインで相手を状態異常に (スリーパー/マタドガス)
+  if (/Once during your turn,[\s\S]*?your opponent'?s Active Pokémon is now Asleep/i.test(text)) fx.turnSleepFlip = true;
+  if (/Once during your turn,[^.]*?make your opponent'?s Active Pokémon Poisoned/i.test(text)) fx.turnPoison = true;
+  // 手札を切ってドロー (ガブリアス)
+  if (/You must discard a card from your hand in order to use this Ability\. Once during your turn, you may draw a card/i.test(text)) fx.turnDrawCost = true;
+  // 番の終わりに自己回復 (カビゴンex 4枚)
+  if ((m = text.match(/At the end of your turn, if this Pokémon is in the Active Spot, heal (\d+) damage from it/i))) fx.endTurnHeal = +m[1];
+  // コインでダメージ無効 (トゲキッス 3枚)
+  if (/If any damage is done to this Pokémon by attacks, flip a coin\. If heads, prevent that damage/i.test(text)) fx.coinPrevent = true;
+  // 殴られたらエネを得る (ブルンゲル 3枚)
+  if ((m = text.match(/is damaged by an attack from your opponent'?s Pokémon, take a \{(\w)\} Energy from your Energy Zone/i))) {
+    fx.onHitAccel = SIM_ENERGY_LETTER[m[1]] || "Colorless";
+  }
   // 最初の番の終わりに自分へエネ加速 (ゼラオラ)
   if ((m = text.match(/At the end of your first turn, take a \{(\w)\} Energy from your Energy Zone and attach it to this Pokémon/i))) {
     fx.firstTurnAccel = SIM_ENERGY_LETTER[m[1]] || "Colorless";
@@ -482,7 +505,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     const eff = doubled ? mon.energy.flatMap((t) => [t, t]) : mon.energy;
     // 相手のワザで一時的にコストが重くなっている (ポリゴンZ)。
     // turnNo は同じスコープの let なので、呼ばれる時点では必ず初期化済み
-    const extra = (mon.costUpUntil || -1) >= turnNo ? 1 : 0;
+    // 相手のバトル場の特性でコストが重くなっている (ムーランド) 場合も同様
+    const extra = ((mon.costUpUntil || -1) >= turnNo ? 1 : 0) + (mon._oppCostUp ? 1 : 0);
     if (eff.length < attack.cost + extra) return false;
     const pool = eff.slice();
     for (const t of attack.typed) {
@@ -557,6 +581,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     if (def.abFx?.firstHitShield && !def.tookFirstHit) { def.tookFirstHit = true; return 0; }
     if (def.abFx?.reduce) out -= def.abFx.reduce;
     if (def.abFx?.reduceFlip && rng() < 0.5) out -= def.abFx.reduceFlip; // ヒスイヌメルゴン等
+    if (def.abFx?.coinPrevent && rng() < 0.5) return 0;                   // トゲキッス
     if (def.shieldUntil >= turnNo) out -= def.shieldValue;
     return Math.max(0, out);
   };
@@ -762,6 +787,10 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     me.supporterUsed = false; // サポートは1ターン1枚
     me.lostLastTurn = me.lostThisTurn;  // 直前の相手の番で自分のポケモンが倒されたか
     me.lostThisTurn = false;
+    /* 相手のバトル場の特性で自分のワザが重くなるか (ムーランド)。
+     * canPay は持ち主を知らないので、番の頭に自分の場へ印を付けておく。 */
+    const heavy = !!op.active?.abFx?.oppCostUp;
+    for (const mon of board(me)) mon._oppCostUp = heavy;
 
     if (me.deck.length) me.hand.push(me.deck.shift());
 
@@ -1133,6 +1162,31 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         if (op.active.damage >= op.active.hp && knockOut(me, op, op.active)) return me === A ? 1 : 0;
       }
       // 相手のバトルポケモンをベンチへ下げる妨害 (育ったアタッカーを一時退場)
+      // 特性: ベンチのエネをまとめて前へ (ルナアーラex)。前が殴れないときだけ使う
+      if (ab.energyBulkMove && me.active && !bestUsable(me.active)) {
+        const from = me.bench.filter((x) => x.energy.length).sort((x, y) => y.energy.length - x.energy.length)[0];
+        if (from) { me.active.energy.push(...from.energy.splice(0)); }
+      }
+      // 特性: トラッシュから貼り直しつつ削る (ブースターex)
+      if (ab.recycleAccel && mon.energy !== undefined) {
+        const j = me.etrash.indexOf(ab.recycleAccel.type);
+        if (j >= 0) {
+          me.etrash.splice(j, 1);
+          mon.energy.push(ab.recycleAccel.type);
+          if (op.active) {
+            op.active.damage += ab.recycleAccel.dmg;
+            if (op.active.damage >= op.active.hp && knockOut(me, op, op.active)) return me === A ? 1 : 0;
+          }
+        }
+      }
+      // 特性: コイン/確定で相手を状態異常に (スリーパー/マタドガス)
+      if (ab.turnSleepFlip && mon === me.active && op.active && rng() < 0.5 && canStatus(op.active)) op.active.sleep = true;
+      if (ab.turnPoison && mon === me.active && op.active && canStatus(op.active)) op.active.poison = true;
+      // 特性: 手札を切ってドロー (ガブリアス)
+      if (ab.turnDrawCost && me.hand.length && me.deck.length) {
+        me.hand.splice(0, 1);
+        me.hand.push(me.deck.shift());
+      }
       if (ab.turnDisrupt && mon === me.active && op.active && op.active.energy.length >= 2 && op.bench.length) {
         op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
         const incoming = op.bench.shift();
@@ -1153,7 +1207,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       : Math.max(0, me.active.rc -
           // スタジアム: ふしぎな広場 (超ポケモンのにげるコスト-2、お互い)
           (stadium?.key === "Peculiar Plaza" && (me.active.types || []).includes("Psychic") ? 2 : 0) -
-          (me.retreatCut || 0)); // スピーダー/リーフ等のにげる軽減
+          (me.retreatCut || 0) -
+          // 特性: ベンチに居るだけで味方のにげるコストを軽くする (シェイミ/ワタッコ)
+          (board(me).some((x) => x.abFx?.teamRetreatCut) ? 1 : 0));
     if (me.active && !bestUsable(me.active) && !me.active.sleep && !me.active.para &&
         me.active.noRetreatTurn !== me.turn &&
         me.active.energy.length >= effRc) {
@@ -1312,6 +1368,8 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
             if (me.active.damage >= me.active.hp && knockOut(op, me, me.active)) return op === A ? 1 : 0;
           }
           if ((op.active.tool === "Poison Barb" || op.active.abFx?.counterPoison) && canStatus(me.active)) me.active.poison = true;
+          // 特性: 殴られたらエネルギーを得る (ブルンゲル)
+          if (op.active.abFx?.onHitAccel) op.active.energy.push(op.active.abFx.onHitAccel);
           // ワザで張った反撃 (アローラサンドパン)
           if ((op.active.counterUntil || -1) >= turnNo && me.active) {
             me.active.damage += op.active.counterValue || 0;
@@ -1453,6 +1511,10 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     me.retreatCut = 0; // にげる軽減もこの番のみ
     me.noAttack = false; // カキ等の「この番は終わる」も解除
 
+    // 特性: 番の終わりに自己回復 (カビゴンex系)
+    if (me.active?.abFx?.endTurnHeal && me.active.damage > 0) {
+      me.active.damage = Math.max(0, me.active.damage - me.active.abFx.endTurnHeal);
+    }
     // 特性: バトル場にいるだけで毎ターン1ドロー (エンテイex系)
     if (me.active?.abFx?.endTurnDraw && me.deck.length) {
       me.hand.push(...me.deck.splice(0, me.active.abFx.endTurnDraw));
