@@ -168,6 +168,119 @@ function parseAttackFx(rawText) {
   // 自分に乗っているダメージ分だけ打点が伸びる (レジギガス等)
   if (/This attack does more damage equal to the damage this Pokémon has on it/i.test(text)) fx.plusSelfDamage = true;
 
+  /* --- 第7弾: トラッシュ(me.trash)を持たせたことで可能になったもの + 残りの取りこぼし --- */
+  // 名指しのポケモンを山札からベンチへ (ドガース/ニドラン♀/ヨワシ/ビードル/ムックル/ニョロモ)
+  if ((m = text.match(/Put (\d+) random ([\w♂♀: ]+?) from your deck onto your Bench/i))) {
+    fx.searchBenchNamed = { n: +m[1], name: m[2].trim() };
+  }
+  // 名指しの進化先を山札から手札へ (イワンコ/コフキムシ系)
+  if (/Put a random card that evolves from \w+ from your deck into your hand/i.test(text)) fx.searchHand = 1;
+  // 山札からサポートを手札へ (ムウマ)
+  if (/Put a random Supporter card from your deck into your hand/i.test(text)) fx.searchSupporter = true;
+  // トラッシュのカード枚数に比例した打点 (トラッシュを持たせたので数えられる)
+  if ((m = text.match(/does (\d+) more damage for each Supporter card in your discard pile/i))) fx.perTrashSupporter = +m[1];
+  if ((m = text.match(/does (\d+) more damage for each \{(\w)\} Pokémon in your discard pile/i))) {
+    fx.perTrashPokemon = { per: +m[1], type: SIM_ENERGY_LETTER[m[2]] || null };
+  }
+  if ((m = text.match(/does (\d+) more damage for each Pokémon in your discard pile/i))) {
+    fx.perTrashPokemon = { per: +m[1], type: null };
+  }
+  // 手札を2枚捨てるコスト。払えないと不発 (デスカーン)
+  if (/Discard 2 cards from your hand\. If you can'?t discard 2 cards, this attack does nothing/i.test(text)) fx.handCost = 2;
+  // 自分のHPが一定以下だと不発 (デメリット。読み落とすと過大評価)
+  if ((m = text.match(/If this Pokémon'?s remaining HP is (\d+) or less, this attack does nothing/i))) fx.deadIfHpLow = +m[1];
+  // 相手を次の番だけ脆くする (デバフ)
+  if ((m = text.match(/During your next turn, the Defending Pokémon takes \+(\d+) damage from attacks/i))) fx.markOpp = +m[1];
+  // 相手のトレーナー全般を封じる (メガゲンガーex/ハバタクカミex)
+  if (/they can'?t (?:play|use) any Trainer cards from their hand/i.test(text)) { fx.lockItemNext = true; fx.lockSupporterNext = true; }
+  // 2色まとめて加速/コスト (ハクリュー/カイリュー)
+  if (/Take a Water and a \{L\} Energy from your Energy Zone and attach them to this Pokémon/i.test(text)) {
+    fx.accelSelf = "Water"; fx.accelSelfN = 2; fx.accelSelf2 = "Lightning";
+  }
+  if (/Discard a Water and a \{L\} Energy from this Pokémon/i.test(text)) fx.discardSelf = 2;
+  // 複数ヒット + ベンチ全体 (メガヤドランex)
+  if ((m = text.match(/Flip (\d+) coins\. This attack also does (\d+) damage for each heads to each of your opponent'?s Benched Pokémon/i))) {
+    fx.coinBenchAll = { n: +m[1], dmg: +m[2] };
+  }
+  // 段階的なコインボーナス (3枚中1枚/2枚/3枚)
+  if ((m = text.match(/Flip 3 coins\. If 1 of them is heads, this attack does (\d+) more damage\. If 2 of them are heads, this attack does (\d+) more damage/i))) {
+    fx.tieredCoin = [+m[1], +m[2]];
+  }
+  // エネ超過でベンチにも飛ぶ (メガカメックスex)
+  if ((m = text.match(/If this Pokémon has at least (\d+) extra \{(\w)\} Energy attached, this attack also does (\d+) damage to (\d+) of your opponent'?s Benched/i))) {
+    fx.extraEnergyBench = { n: +m[1], type: SIM_ENERGY_LETTER[m[2]], dmg: +m[3], targets: +m[4] };
+  }
+  // 2タイプのいずれかなら追加 (セキタンザン系)
+  if ((m = text.match(/If your opponent'?s Active Pokémon is a (\w+) or \{(\w)\} Pokémon, this attack does (\d+) more damage/i))) {
+    (fx.condBonus = fx.condBonus || []).push({ key: "oppType", amount: +m[3], arg: m[2] });
+    (fx.condBonus = fx.condBonus || []).push({ key: "oppType", amount: 0, arg: m[1][0] });
+  }
+  // {M}エネの数だけランダムヒット (サーフゴーex)
+  if ((m = text.match(/1 of your opponent'?s Pokémon is chosen at random for each \{(\w)\} Energy attached to this Pokémon\. For each time a Pokémon was chosen, do (\d+) damage/i))) {
+    fx.randomHitPerEnergy = { type: SIM_ENERGY_LETTER[m[1]], dmg: +m[2] };
+  }
+
+  /* --- 第6弾: 「盤面から判定できない」は誤りだった ---
+   * sim には me.deck / me.hand が実在するので、山札操作も手札干渉も実装できる。
+   * さらにカードのトラッシュ(me.trash)を持たせて、トラッシュ参照も可能にした。
+   * 92種のうち本当に実装できないのは
+   * 「ターンを跨ぐ独自カウンタ(Sweets Relay)」「ワザのコピー」「遅延ダメージ」だけ。 */
+
+  // 色を指定したコイン加算 (サーフゴー「{M}の数だけコインを投げ、表×50」)
+  if ((m = text.match(/Flip a coin for each \{(\w)\} Energy attached to this Pokémon\. This attack does (\d+) damage for each heads/i))) {
+    fx.coinPerEnergy = +m[2]; fx.coinPerEnergyType = SIM_ENERGY_LETTER[m[1]] || null;
+  }
+  // 相手のバトル場のエネ数に比例した「基礎打点」(ムチュール)。既存の perOppEnergy は加算版
+  if ((m = text.match(/This attack does (\d+) damage for each Energy attached to your opponent'?s Active Pokémon/i))) {
+    fx.baseOppEnergy = +m[1];
+  }
+  // 自分も巻き込むランダムヒット (マグカルゴ)
+  if ((m = text.match(/1 other Pokémon \(either yours or your opponent'?s\) is chosen at random (\d+) times?\. (?:For each time a Pokémon was chosen, )?[Dd]o (\d+) damage/i))) {
+    fx.randomHitAny = { times: +m[1], dmg: +m[2] };
+  }
+  // コイン失敗で自分のエネが飛ぶ (エンテイ)
+  if ((m = text.match(/Flip a coin\. If tails, discard (\d+) random Energy from this Pokémon/i))) fx.tailsDiscardSelf = +m[1];
+  // ベンチを生贄にして打点に変える (ギャラドス)
+  if ((m = text.match(/You may discard any number of your Benched \{?\w*\}? ?Pokémon\. This attack does (\d+) more damage for each Benched Pokémon you discarded/i))) {
+    fx.sacBench = +m[1];
+  }
+  // 前の番に殴られていたら追加 (ソーナンス)
+  if ((m = text.match(/If this Pokémon was damaged by an attack during your opponent'?s last turn[^.]*?this attack does (\d+) more damage/i))) fx.ifWasHit = +m[1];
+  // 相手と同じ枚数まで引く (エイパム)
+  if (/Draw cards until you have the same number of cards in your hand as your opponent/i.test(text)) fx.drawToMatch = true;
+  // 相手の山札の中身を数える (ポリゴンZ)。山札は実在するので数えられる
+  if ((m = text.match(/does (\d+) more damage for each Trainer card in your opponent'?s deck/i))) fx.perOppDeckTrainer = +m[1];
+  // 相手の山札を削る (アイアント/メガギャラドスex)。ポケポケに山切れ負けは無いので情報価値のみ
+  if ((m = text.match(/Discard the top (\d+) cards of your opponent'?s deck/i))) fx.millOpp = +m[1];
+  else if (/Discard the top card of your opponent'?s deck/i.test(text)) fx.millOpp = 1;
+  // 自分の山札を削る (フライゴンex/ドサイドン)。トラッシュ参照デッキの準備になる
+  if ((m = text.match(/Discard the top (\d+) cards of your deck/i))) fx.millSelf = +m[1];
+  else if (/Discard the top card of your deck/i.test(text)) fx.millSelf = 1;
+  // ランダムなベンチ1体に追加ダメージ (デンリュウ)
+  if ((m = text.match(/1 of your opponent'?s Benched Pokémon is chosen at random\. This attack also does (\d+) damage to it/i))) {
+    fx.randomBenchHit = +m[1];
+  }
+  // 相手の軽減効果を無視する (ギモー)
+  if (/This attack'?s damage isn'?t affected by any effects on your opponent'?s Active Pokémon/i.test(text)) fx.ignoreDefense = true;
+  // 両方ウラで不発 (コインが2枚)
+  if ((m = text.match(/Flip (\d+) coins\. If (?:both|all) of them are tails, this attack does nothing/i))) fx.allTailsNothing = +m[1];
+  // 次の自分の番、味方全体の打点が上がる (オドリドリ/メロエッタ)
+  if ((m = text.match(/During your next turn, attacks used by your (?:\{(\w)\} )?Pokémon do \+(\d+) damage/i))) {
+    fx.teamBoostNext = { type: m[1] ? SIM_ENERGY_LETTER[m[1]] : null, amount: +m[2] };
+  }
+  // 場のエネを2個ずつ落とす (メガラグラージex)
+  if ((m = text.match(/Discard (\d+) random Energy from among the Energy attached to all Pokémon \(both/i))) fx.discardAllBothN = +m[1];
+  // 自分の場のエネを落とす (グラードン)
+  if ((m = text.match(/Discard (\d+) random Energy from among the Energy attached to all of your Pokémon/i))) fx.discardAllMine = +m[1];
+  // スタジアムを流す
+  if (/Discard a Stadium in play/i.test(text)) fx.clearStadium = true;
+  // コインで相手のバトル場をトラッシュ (実質きぜつ扱い)
+  if (/Flip a coin\. If heads, discard your opponent'?s Active Pokémon/i.test(text)) fx.coinKoOpp = true;
+  // 名指しの相方にエネを貼る (ユクシー)
+  if ((m = text.match(/Take a \{(\w)\} Energy from your Energy Zone and attach it to (\w+) or (\w+)/i))) {
+    fx.accelNamed = { type: SIM_ENERGY_LETTER[m[1]] || "Colorless", names: [m[2], m[3]] };
+  }
+
   /* --- 第5弾: 全テキスト再読で残っていた実装可能なもの --- */
   // 複数コインの全表ボーナス (キングラー等)
   if ((m = text.match(/Flip (\d+) coins\. If (?:both|all) of them are heads, this attack does (\d+) more damage/i))) {
@@ -611,6 +724,36 @@ function attackEv(dmg, fx) {
   if (fx.discardOppHand) ev += 8;
   if (fx.cheapWhenHurt) ev += 10;
   if (fx.bounceOppActive) ev += 25;
+  // 第6弾
+  if (fx.baseOppEnergy) ev = Math.max(ev, fx.baseOppEnergy * 2);
+  if (fx.randomHitAny) ev += fx.randomHitAny.times * fx.randomHitAny.dmg * 0.3; // 自分にも当たる
+  if (fx.tailsDiscardSelf) ev -= fx.tailsDiscardSelf * 8;
+  if (fx.sacBench) ev += fx.sacBench * 0.4;
+  if (fx.ifWasHit) ev += fx.ifWasHit * 0.45;
+  if (fx.drawToMatch) ev += 12;
+  if (fx.perOppDeckTrainer) ev += fx.perOppDeckTrainer * 4;  // 山札に平均4枚想定
+  if (fx.millOpp) ev += 1;                                   // 山切れ負けが無いのでほぼ無価値
+  if (fx.millSelf) ev += 1;
+  if (fx.randomBenchHit) ev += fx.randomBenchHit * 0.7;
+  if (fx.ignoreDefense) ev += 8;
+  if (fx.allTailsNothing) ev *= 1 - Math.pow(0.5, fx.allTailsNothing);
+  if (fx.teamBoostNext) ev += fx.teamBoostNext.amount * 0.6;
+  if (fx.discardAllBothN) ev += fx.discardAllBothN * 3;
+  if (fx.discardAllMine) ev -= fx.discardAllMine * 10;
+  if (fx.clearStadium) ev += 3;
+  if (fx.coinKoOpp) ev += 45;
+  if (fx.accelNamed) ev += 12;
+  // 第7弾
+  if (fx.searchBenchNamed) ev += 14;
+  if (fx.searchSupporter) ev += 10;
+  if (fx.perTrashSupporter) ev += fx.perTrashSupporter * 1.5;
+  if (fx.perTrashPokemon) ev += fx.perTrashPokemon.per * 1.5;
+  if (fx.deadIfHpLow) ev -= 12;                 // 削られると撃てなくなるデメリット
+  if (fx.markOpp) ev += fx.markOpp * 0.5;
+  if (fx.coinBenchAll) ev += fx.coinBenchAll.n * 0.5 * fx.coinBenchAll.dmg * 0.6;
+  if (fx.tieredCoin) ev += (fx.tieredCoin[0] + fx.tieredCoin[1]) * 0.35;
+  if (fx.extraEnergyBench) ev += fx.extraEnergyBench.dmg * fx.extraEnergyBench.targets * 0.35;
+  if (fx.randomHitPerEnergy) ev += fx.randomHitPerEnergy.dmg * 1.5;
   if (fx.coinShield) ev += 12;
   if (fx.fullShield) ev += 22;
   if (fx.trapOpp) ev += 10;
@@ -697,7 +840,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       deck = shuffle(simDeck.cards);
       hand = deck.splice(0, 5);
     } while (!hand.some((c) => c.basic));
-    return { deck, hand, energies: simDeck.energies, active: null, bench: [], points: 0, turn: 0, candy: 0, etrash: [] };
+    return { deck, hand, energies: simDeck.energies, active: null, bench: [], points: 0, turn: 0, candy: 0, etrash: [], trash: [] };
   };
 
   const inst = (c, turn) => ({
@@ -765,6 +908,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       if (ab?.onKoAttacker && me.active) me.active.damage += ab.onKoAttacker;
       if (!denied) me.points += pointsFor(mon, me);
       op.lostThisTurn = true; // マーシャドー系「前の番に倒されていたら+N」の判定用
+      op.trash.push(mon);     // トラッシュ参照のワザ(「トラッシュのポケモンの数だけ+N」)用
       op.active = null;
       if (me.points >= 3 || !op.bench.length) return true;
       op.bench.sort((x, y) => attackerValue(y) - attackerValue(x));
@@ -773,6 +917,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
       const i = op.bench.indexOf(mon);
       if (i >= 0) {
         op.bench.splice(i, 1);
+        op.trash.push(mon);
         if (!denied) me.points += pointsFor(mon, me);
         op.lostThisTurn = true;
         if (me.points >= 3) return true;
@@ -997,6 +1142,12 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
     me.supporterUsed = false; // サポートは1ターン1枚
     me.lostLastTurn = me.lostThisTurn;  // 直前の相手の番で自分のポケモンが倒されたか
     me.lostThisTurn = false;
+    // 「次の自分の番だけ味方全体の打点が上がる」の受け渡し (オドリドリ/メロエッタ)
+    if (me.nextTeamBoost) {
+      me.nextTeamBoostApplied = me.nextTeamBoost; me.nextTeamBoostTurn = me.turn; me.nextTeamBoost = 0;
+    }
+    // 「前の相手の番に殴られたか」を各ポケモンに記録 (ソーナンス)
+    for (const mon of board(me)) { mon.wasHitLastTurn = mon.hitThisRound; mon.hitThisRound = false; }
     /* 相手のバトル場の特性で自分のワザが重くなるか (ムーランド)。
      * canPay は持ち主を知らないので、番の頭に自分の場へ印を付けておく。 */
     const heavy = !!op.active?.abFx?.oppCostUp;
@@ -1449,7 +1600,7 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
         const fx = attack.fx || {};
         const boost = () => {
           // 特性の打点強化 (自分の場全体から集計)
-          let b = 0;
+          let b = me.nextTeamBoostTurn === me.turn ? (me.nextTeamBoostApplied || 0) : 0;
           for (const mon of board(me)) {
             const tb = mon.abFx?.teamBoost;
             if (tb && (!tb.type || (me.active.types || []).includes(tb.type))) b += tb.amount;
@@ -1470,8 +1621,9 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
             if (stadium?.key === "Training Area" && me.active.evolvesFrom && !me.active.stage2) dmg += 10;
             if (op.active.weakness && (me.active.types || []).includes(op.active.weakness) &&
                 !fx.ignoreWeakness && (op.active.noWeakUntil || -1) < turnNo) dmg += 20;
-            dmg = applyReduction(op.active, dmg, turnNo, me.active);
+            if (!fx.ignoreDefense) dmg = applyReduction(op.active, dmg, turnNo, me.active);
             op.active.damage += dmg;
+            op.active.hitThisRound = true;
             if (fx?.drain && me.active) me.active.damage = Math.max(0, me.active.damage - dmg);
             if (op.active.damage >= op.active.hp) {
               if (knockOut(me, op, op.active)) return me === A ? "A" : "B";
@@ -1574,6 +1726,33 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           if (ok) dmg += cb.amount;
         }
         if (me.active) me.active.hasAttacked = true;
+        if (fx.baseOppEnergy) dmg = fx.baseOppEnergy * op.active.energy.length;
+        if (fx.perTrashSupporter) dmg += fx.perTrashSupporter * me.trash.filter((x) => x.trainerType === "Supporter").length;
+        if (fx.perTrashPokemon) dmg += fx.perTrashPokemon.per * me.trash.filter((x) =>
+          x.pokemon && (!fx.perTrashPokemon.type || (x.types || []).includes(fx.perTrashPokemon.type))).length;
+        if (fx.deadIfHpLow && (me.active.hp - me.active.damage) <= fx.deadIfHpLow) dmg = 0;
+        if (fx.tieredCoin) {
+          let h = 0; for (let i = 0; i < 3; i++) if (rng() < 0.5) h++;
+          if (h >= 2) dmg += fx.tieredCoin[1]; else if (h === 1) dmg += fx.tieredCoin[0];
+        }
+        if (fx.perOppDeckTrainer) dmg += fx.perOppDeckTrainer * op.deck.filter((x) => x.trainer).length;
+        if (fx.ifWasHit && me.active.wasHitLastTurn) dmg += fx.ifWasHit;
+        if (fx.sacBench && me.bench.length) {
+          // 殴り勝てるぶんだけ生贄にする (盤面が枯れない範囲で1体まで)
+          const give = Math.min(1, me.bench.length - 1);
+          for (let k = 0; k < give; k++) me.trash.push(me.bench.pop());
+          dmg += fx.sacBench * give;
+        }
+        if (fx.allTailsNothing) {
+          let allT = true;
+          for (let i = 0; i < fx.allTailsNothing; i++) if (rng() < 0.5) allT = false;
+          if (allT) dmg = 0;
+        }
+        if (fx.coinPerEnergyType) {
+          let h = 0;
+          for (const t of me.active.energy) if (t === fx.coinPerEnergyType && rng() < 0.5) h++;
+          dmg = fx.coinPerEnergy * h;
+        }
         if (fx.allHeadsBonus) {
           let all = true;
           for (let i = 0; i < fx.allHeadsBonus.n; i++) if (rng() >= 0.5) all = false;
@@ -1745,6 +1924,91 @@ function simulateGame(simDeckA, simDeckB, rng, stats) {
           let all = true;
           for (let i = 0; i < fx.allHeadsKo; i++) if (rng() >= 0.5) all = false;
           if (all) { op.active.damage = op.active.hp; if (knockOut(me, op, op.active)) return me === A ? 1 : 0; }
+        }
+        // 第6弾
+        // 第7弾
+        if (fx.searchBenchNamed && me.bench.length < 3) {
+          for (let k = 0; k < fx.searchBenchNamed.n && me.bench.length < 3; k++) {
+            const j = me.deck.findIndex((x) => x.basic &&
+              (x.name === fx.searchBenchNamed.name || x.enName === fx.searchBenchNamed.name));
+            if (j < 0) break;
+            me.bench.push(inst(me.deck.splice(j, 1)[0], me.turn));
+          }
+        }
+        if (fx.searchSupporter) {
+          const j = me.deck.findIndex((x) => x.trainerType === "Supporter");
+          if (j >= 0) me.hand.push(me.deck.splice(j, 1)[0]);
+        }
+        if (fx.markOpp && op.active) { op.active.shieldUntil = turnNo + 1; op.active.shieldValue = -fx.markOpp; }
+        if (fx.coinBenchAll) {
+          let h = 0; for (let i = 0; i < fx.coinBenchAll.n; i++) if (rng() < 0.5) h++;
+          if (h) for (const t of op.bench.slice()) {
+            t.damage += fx.coinBenchAll.dmg * h;
+            if (t.damage >= t.hp && knockOut(me, op, t)) return me === A ? 1 : 0;
+          }
+        }
+        if (fx.extraEnergyBench && me.active) {
+          const extra = me.active.energy.filter((t) => t === fx.extraEnergyBench.type).length - attack.cost;
+          if (extra >= fx.extraEnergyBench.n) {
+            for (const t of op.bench.slice(0, fx.extraEnergyBench.targets)) {
+              t.damage += fx.extraEnergyBench.dmg;
+              if (t.damage >= t.hp && knockOut(me, op, t)) return me === A ? 1 : 0;
+            }
+          }
+        }
+        if (fx.randomHitPerEnergy && me.active) {
+          const n = me.active.energy.filter((t) => t === fx.randomHitPerEnergy.type).length;
+          for (let k = 0; k < n; k++) {
+            const pool = board(op);
+            if (!pool.length) break;
+            const t = pool[Math.floor(rng() * pool.length)];
+            t.damage += fx.randomHitPerEnergy.dmg;
+            if (t.damage >= t.hp && knockOut(me, op, t)) return me === A ? 1 : 0;
+          }
+        }
+        if (fx.accelSelf2 && me.active && attachEnergy(me, op, me.active, fx.accelSelf2, turnNo)) return me === A ? 1 : 0;
+        if (fx.randomHitAny) for (let k = 0; k < fx.randomHitAny.times; k++) {
+          const pool = board(me).concat(board(op)).filter((x) => x !== me.active);
+          if (!pool.length) break;
+          const tgt = pool[Math.floor(rng() * pool.length)];
+          tgt.damage += fx.randomHitAny.dmg;
+          const owner = board(me).includes(tgt) ? me : op;
+          const other = owner === me ? op : me;
+          if (tgt.damage >= tgt.hp && knockOut(other, owner, tgt)) return owner === A ? 0 : 1;
+        }
+        if (fx.tailsDiscardSelf && rng() < 0.5 && me.active) {
+          me.etrash.push(...me.active.energy.splice(0, fx.tailsDiscardSelf));
+        }
+        if (fx.drawToMatch) {
+          const need = Math.max(0, op.hand.length - me.hand.length);
+          me.hand.push(...me.deck.splice(0, Math.min(need, me.deck.length)));
+        }
+        if (fx.millOpp) op.trash.push(...op.deck.splice(0, fx.millOpp));
+        if (fx.millSelf) me.trash.push(...me.deck.splice(0, fx.millSelf));
+        if (fx.randomBenchHit && op.bench.length) {
+          const tgt = op.bench[Math.floor(rng() * op.bench.length)];
+          tgt.damage += fx.randomBenchHit;
+          if (tgt.damage >= tgt.hp && knockOut(me, op, tgt)) return me === A ? 1 : 0;
+        }
+        if (fx.teamBoostNext) { me.nextTeamBoost = fx.teamBoostNext.amount; me.nextTeamBoostType = fx.teamBoostNext.type; }
+        if (fx.discardAllBothN) for (const pl of [me, op]) for (const mon of board(pl)) {
+          for (let k = 0; k < fx.discardAllBothN && mon.energy.length; k++) {
+            pl.etrash.push(...mon.energy.splice(Math.floor(rng() * mon.energy.length), 1));
+          }
+        }
+        if (fx.discardAllMine) for (const mon of board(me)) {
+          for (let k = 0; k < fx.discardAllMine && mon.energy.length; k++) {
+            me.etrash.push(...mon.energy.splice(Math.floor(rng() * mon.energy.length), 1));
+          }
+        }
+        if (fx.clearStadium) stadium = null;
+        if (fx.coinKoOpp && op.active && rng() < 0.5) {
+          op.active.damage = op.active.hp;
+          if (knockOut(me, op, op.active)) return me === A ? 1 : 0;
+        }
+        if (fx.accelNamed) {
+          const tgt = board(me).find((x) => fx.accelNamed.names.includes(x.name) || fx.accelNamed.names.includes(x.enName));
+          if (tgt && attachEnergy(me, op, tgt, fx.accelNamed.type, turnNo)) return me === A ? 1 : 0;
         }
         if (fx.flipLockOpp && op.active) op.active.flipLockUntil = turnNo + 1;
         if (fx.lockAttackBasic && op.active?.basic) op.active.noAttackTurn = op.turn + 1;
