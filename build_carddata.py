@@ -539,6 +539,65 @@ def main():
 
     # --- 4. pokeclaude: 詳細ソースに無いカードのワザ/HP/弱点/にげるを補完 ---
     pc = load_pokeclaude_cards()
+
+    # 4-0. 新弾の取り込み。
+    # hugoburguete/chase-manning は新弾の反映が遅く (2026-08時点で B3a / B3b まで)、
+    # pokeclaude(Limitlessスクレイプ)だけが先に新セットを持っていることがある。
+    # 従来は「既存カードの穴埋め」にしか使っていなかったため、
+    # 他ソースに存在しないセットは丸ごと取りこぼしていた (B4 Ruler of the Skies 233枚)。
+    # ここで pokeclaude 固有のカードを新規追加し、新弾が出たら自動で入るようにする。
+    known_ids = {c["id"] for c in cards}
+    new_by_set = {}
+    for cid, r in pc.items():
+        if cid in known_ids:
+            continue
+        sid = str(r.get("set_code", "")).strip()
+        name = str(r.get("name", "")).strip()
+        if not sid or not name:
+            continue
+        ctype = str(r.get("type", "")).strip()
+        is_pokemon = ctype in POKEMON_TYPES
+        hp = str(r.get("hp") or "")
+        rc = str(r.get("retreat_cost") or "")
+        d = {
+            "c": "Pokemon" if is_pokemon else "Trainer",
+            "t": [ctype] if is_pokemon else [],
+            "h": int(hp) if hp.isdigit() else None,
+            "s": None,
+            "r": norm_rarity(r.get("rarity")),
+        }
+        atks = parse_csv_attacks(r.get("attacks", ""))
+        if atks:
+            d["a"] = atks
+        if r.get("weakness"):
+            d["w"] = [{"t": r["weakness"], "v": "+20"}]
+        if rc.isdigit():
+            d["rc"] = int(rc)
+        # 進化情報はCSVにある範囲で拾う (種族引き継ぎでも後段で補完される)
+        stage = str(r.get("evolution_stage") or "").strip()
+        if stage in ("Basic", "Stage 1", "Stage 2"):
+            d["s"] = stage.replace(" ", "")  if stage != "Basic" else "Basic"
+            d["s"] = {"Stage1": "Stage1", "Stage2": "Stage2", "Basic": "Basic"}.get(d["s"], stage)
+        if r.get("evolves_from"):
+            d["dv"] = str(r["evolves_from"]).strip()
+        details[cid] = d
+        set_label = str(r.get("set_name") or sid).strip()
+        # pokeclaude の set_name は "Ruler of the Skies B4" のようにコードが末尾に付く
+        set_label = re.sub(r"\s+" + re.escape(sid) + r"$", "", set_label)
+        set_names.setdefault(sid, set_label)
+        cards.append({
+            "id": cid,
+            "localId": cid.rsplit("-", 1)[1],
+            "name": name,
+            "image": str(r.get("image_url") or "") or None,
+            "setId": sid,
+            "setName": set_label,
+        })
+        new_by_set[sid] = new_by_set.get(sid, 0) + 1
+    if new_by_set:
+        print("pokeclaude: 新規カードを追加 " +
+              ", ".join(f"{k}:{v}枚" for k, v in sorted(new_by_set.items())))
+
     cid_to_name = {c["id"]: c["name"] for c in cards}
     filled_atk = 0
     for cid, d in details.items():

@@ -874,3 +874,11 @@ button.danger { color: var(--danger); }
 }
 .chat-btn-row { display: flex; gap: 8px; }
 .chat-btn-row button { flex: 1; padding: 11px; font-size: 14px; }
+
+/* 日本語カード画像トグル */
+#ja-img-btn { flex: 0 0 auto; padding: 9px 12px; }
+#ja-img-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}

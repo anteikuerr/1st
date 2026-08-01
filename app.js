@@ -37,6 +37,7 @@ const state = {
   deckName: "",
   energies: [],          // energy type ids (max 3)
   savedDecks: [],
+  jaImages: false,       // カード画像を日本語版にするか (配信状況を確かめてから有効化)
   details: new Map(),    // cardId -> { c: category, t: types[], h: hp, s: stage, r: rarity }
   detailCache: new Map(),// cardId -> フル詳細 (モーダル用)
   localData: null,       // download_cards.py の data/ を使用中なら { high: bool }
@@ -116,15 +117,61 @@ function normalize(s) {
 // 画像URL: 直リンク形式(.png等)ならそのまま、TCGdex形式なら解像度サフィックスを付ける
 const isDirectImage = (url) => /\.(png|webp|jpe?g)$/i.test(url || "");
 
+/* ---- 日本語カード画像 ----
+ * 収録画像には2系統ある:
+ *   Limitless CDN  … ファイル名に言語コードが入る (B4_001_EN_SM.webp)
+ *   chase-manning  … 英語版のみ。TCGdexの日本語アセットで代替を試みる
+ * どちらも「日本語版が存在するか」を事前に確かめる手段が無いので、
+ * 楽観的に日本語URLを当てて、読み込みに失敗したら英語へ自動で戻す方式にする。
+ * こうすれば日本語版が無いカードでも表示が壊れない。 */
+const TCGDEX_JA = "https://assets.tcgdex.net/ja/tcgp";
+
+function jaImageCandidate(card, size) {
+  if (!card.image) return null;
+  // Limitless形式: ファイル名の言語コードを差し替える
+  if (/limitlesstcg[^ ]*_EN_/.test(card.image)) return card.image.replace("_EN_", "_JP_");
+  // それ以外は TCGdex の日本語アセットを試す (A1-001 → /ja/tcgp/A1/1/high.webp)
+  const m = String(card.id).match(/^(.+)-(\d+)$/);
+  if (!m) return null;
+  return `${TCGDEX_JA}/${m[1]}/${Number(m[2])}/${size}.webp`;
+}
+
 function thumbUrl(card) {
   if (state.localData) return `data/img/${card.id}.png`;
   if (!card.image) return null;
+  if (state.jaImages) { const j = jaImageCandidate(card, "low"); if (j) return j; }
   return isDirectImage(card.image) ? card.image : `${card.image}/low.webp`;
 }
 function largeUrl(card) {
   if (state.localData) return `data/img/${card.id}.png`;
   if (!card.image) return null;
+  if (state.jaImages) { const j = jaImageCandidate(card, "high"); if (j) return j; }
   return isDirectImage(card.image) ? card.image : `${card.image}/high.webp`;
+}
+
+// 日本語画像が読めなかったときに英語版へ差し戻す (1回だけ)
+function attachJaFallback(img, card, size) {
+  if (!state.jaImages || !card?.image) return;
+  img.addEventListener("error", function onErr() {
+    img.removeEventListener("error", onErr);
+    img.src = isDirectImage(card.image) ? card.image : `${card.image}/${size}.webp`;
+  }, { once: true });
+}
+
+/* 日本語画像が実際に配信されているかを1枚だけ試して判定する。
+ * 「あるかどうか分からないものを全カードに当てる」前に確かめるための関数。 */
+function probeJaImages() {
+  const card = state.allCards.find((c) => c.image);
+  const url = card && jaImageCandidate(card, "low");
+  if (!url) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const im = new Image();
+    const done = (ok) => { im.onload = im.onerror = null; resolve(ok); };
+    im.onload = () => done(im.naturalWidth > 0);
+    im.onerror = () => done(false);
+    im.src = url;
+    setTimeout(() => done(false), 8000);
+  });
 }
 
 async function fetchJson(url) {
@@ -475,6 +522,7 @@ function makeCardCell(card) {
     img.src = url;
     img.alt = card.name;
     img.title = `${card.name} (${card.id})`;
+    attachJaFallback(img, card, "low"); // 日本語版が無ければ英語版へ戻す
     // 画像が無い/取得漏れの場合はカード名のプレースホルダに置き換える
     img.addEventListener("error", () => {
       const ph = document.createElement("div");
@@ -1659,6 +1707,7 @@ function openCardModal(cardId) {
   state.modalCardId = cardId;
 
   els.modalImg.src = largeUrl(card) || "";
+  attachJaFallback(els.modalImg, card, "high");
   els.modalImg.alt = card.name;
   els.modalInfo.innerHTML =
     `<div class="mi-name">${esc(card.name)}</div>` +
@@ -1750,6 +1799,40 @@ function bindEvents() {
     select.addEventListener("change", applyFilter);
   }
   els.reloadBtn.addEventListener("click", () => loadCards(true));
+
+  /* 日本語カード画像の切り替え。
+   * 日本語版が配信されているか事前に確認する手段が無いので、
+   * 有効化する前に1枚だけ実際に読み込んでみて、届かなければ英語のままにする。
+   * (全カードに当ててから気づくと、画面中が読み込み失敗で埋まるため) */
+  const jaBtn = $("#ja-img-btn");
+  if (jaBtn) {
+    const paint = () => {
+      jaBtn.classList.toggle("is-on", !!state.jaImages);
+      jaBtn.title = state.jaImages ? "カード画像: 日本語 (押すと英語に戻す)" : "カード画像を日本語版にする";
+    };
+    state.jaImages = localStorage.getItem("ppdb.jaImages") === "1";
+    paint();
+    jaBtn.addEventListener("click", async () => {
+      if (state.jaImages) {
+        state.jaImages = false;
+        localStorage.setItem("ppdb.jaImages", "0");
+        paint(); applyFilter(); renderDeck();
+        toast("カード画像を英語版に戻しました");
+        return;
+      }
+      jaBtn.disabled = true;
+      const ok = await probeJaImages();
+      jaBtn.disabled = false;
+      if (!ok) {
+        toast("日本語のカード画像を取得できませんでした（未配信か通信の問題）。英語のままにします");
+        return;
+      }
+      state.jaImages = true;
+      localStorage.setItem("ppdb.jaImages", "1");
+      paint(); applyFilter(); renderDeck();
+      toast("カード画像を日本語版にしました");
+    });
+  }
 
   els.deckName.addEventListener("input", () => {
     state.deckName = els.deckName.value;

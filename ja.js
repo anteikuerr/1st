@@ -9,6 +9,21 @@ const POKEMON_JA = {"Bulbasaur":"フシギダネ","Ivysaur":"フシギソウ","V
 // カード名の個別対訳 (トレーナーズ全種 + 辞書で訳せない特殊なポケモン名)
 // ※一部は公式の日本語名が確認できていない暫定訳
 const CARD_JA = {
+  // --- B4 Ruler of the Skies (2026-08 追加分) ---
+  // 既存の翻訳規則で解けなかったカードだけを明示する
+  "Teal MaskOgerpon": "みどりのめんオーガポン",
+  "Order Pad": "オーダーパッド",
+  "Claw Fossil": "ツメのカセキ",
+  "Root Fossil": "ネのカセキ",
+  "Deceptive Needle": "だましのハリ",
+  "Clear Veil": "クリアベール",
+  "Psychic": "サイコキネシス",
+  "Drayden": "シャガ",
+  "Skyla": "フウロ",
+  "Wally": "ミツル",
+  "Soothing Shore": "いやしのみぎわ",
+  "Rainbow Cave": "にじいろのどうくつ",
+
   // --- ポケモン (特殊な名前) ---
   "Dawn Wings Necrozma": "ネクロズマ(あかつきのつばさ)",
   "Dusk Mane Necrozma": "ネクロズマ(たそがれのたてがみ)",
