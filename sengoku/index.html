@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>戦国合戦絵巻 — 勢力図で見る四大合戦</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="戦国合戦絵巻">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e141b">
+<meta name="description" content="戦国時代の代表的な合戦を、勢力図と部隊の動きでビジュアルに追う">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+<style>
+:root{
+  --bg:#0e141b; --bg2:#121b24;
+  --panel:#18222d; --panel2:#1e2b38;
+  --line:#2a3a4a; --line2:#374c60;
+  --text:#e9f0f7; --muted:#93a8bd; --dim:#6b8199;
+  --gold:#d8ab5b; --gold-dim:#8a6d38;
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased; overscroll-behavior:none;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.screen{display:none;flex-direction:column;height:100dvh}
+.screen.on{display:flex}
+
+/* ---------- ホーム ---------- */
+#home{overflow-y:auto;-webkit-overflow-scrolling:touch;display:none}
+#home.on{display:block}
+.hero{
+  padding:calc(var(--safe-t) + 30px) 20px 24px;
+  background:radial-gradient(120% 80% at 50% 0%, #1c2a38 0%, transparent 70%), linear-gradient(180deg,#111a23,var(--bg));
+  border-bottom:1px solid var(--line); text-align:center;
+}
+.hero .mark{font-size:26px;letter-spacing:.3em;margin-left:.3em;color:#9fb4c8}
+.hero h1{
+  margin:8px 0 6px; font-size:26px; letter-spacing:.16em; font-weight:700;
+  background:linear-gradient(180deg,#f4e3c0,var(--gold));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.hero p{margin:0;color:var(--muted);font-size:12.5px;letter-spacing:.06em;line-height:1.75}
+.list{padding:16px 14px 8px;display:flex;flex-direction:column;gap:14px}
+.card{
+  position:relative;display:block;width:100%;text-align:left;
+  background:linear-gradient(160deg,var(--panel2),var(--panel));
+  border:1px solid var(--line); border-radius:16px; padding:14px 15px 15px;
+  overflow:hidden; transition:transform .12s ease, border-color .2s;
+}
+.card:active{transform:scale(.982);border-color:var(--line2)}
+.card .yr{position:absolute;right:12px;top:8px;font-size:34px;font-weight:800;color:#ffffff0a;letter-spacing:-.02em;line-height:1}
+.card h2{margin:0 0 3px;font-size:19px;letter-spacing:.06em}
+.card .sub{margin:0 0 11px;font-size:11.5px;color:var(--dim);letter-spacing:.04em}
+.card .vs{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.card .vs .nm{font-size:12.5px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .vs .nm.r{text-align:right}
+.card .vs .x{font-size:10px;color:var(--dim);letter-spacing:.1em;flex:none}
+.bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:#0a1017}
+.bar i{display:block;height:100%}
+.card .nums{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.card .tag{display:inline-block;margin-top:11px;font-size:10.5px;letter-spacing:.06em;padding:3px 9px;border-radius:99px;border:1px solid var(--gold-dim);color:var(--gold)}
+.credits{padding:8px 22px calc(var(--safe-b) + 30px);color:#4f6377;font-size:10.5px;line-height:1.8;text-align:center}
+
+/* ---------- 詳細 ---------- */
+.top{display:flex;align-items:center;gap:4px;flex:none;padding:calc(var(--safe-t) + 7px) 8px 7px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.top .back{padding:6px 8px;font-size:13.5px;color:var(--gold);letter-spacing:.04em;flex:none}
+.top .ttl{flex:1;min-width:0;text-align:center}
+.top .ttl b{display:block;font-size:15px;letter-spacing:.06em;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .ttl span{display:block;font-size:9.5px;color:var(--dim);letter-spacing:.04em;margin-top:1px}
+.top .rst{padding:6px 6px;font-size:10px;color:var(--muted);flex:none;text-align:right;line-height:1.35;max-width:76px}
+
+.gauge{flex:none;padding:7px 12px 8px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.gauge .lbls{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;margin-bottom:5px}
+.gauge .g{display:flex;align-items:center;gap:5px;min-width:0}
+.gauge .dot{width:8px;height:8px;border-radius:2px;flex:none}
+.gauge .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.gauge .tr{color:var(--dim);font-variant-numeric:tabular-nums;flex:none}
+.gauge .bar{height:9px;border-radius:5px}
+.gauge .bar i{transition:flex-grow .55s cubic-bezier(.4,0,.2,1)}
+
+.mapwrap{flex:1;min-height:0;position:relative;background:radial-gradient(130% 90% at 50% 25%, #17222e 0%, #0b1118 100%);touch-action:none;overflow:hidden}
+svg.map{width:100%;height:100%;display:block}
+.zoombtns{position:absolute;right:8px;bottom:8px;display:flex;flex-direction:column;gap:6px}
+.zoombtns button{width:33px;height:33px;border-radius:9px;background:#0f1720cc;border:1px solid var(--line2);color:var(--muted);font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+.zoombtns button:active{background:#1b2837}
+.legend{position:absolute;left:8px;top:8px;display:flex;flex-direction:column;gap:4px;background:#0f1720b3;border:1px solid var(--line);border-radius:9px;padding:6px 9px;font-size:10px;color:var(--muted);backdrop-filter:blur(6px);pointer-events:none;max-width:47%}
+.legend div{display:flex;align-items:center;gap:6px}
+.legend .sw{width:9px;height:9px;border-radius:99px;flex:none}
+.legend span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.info{flex:none;background:linear-gradient(180deg,var(--panel),var(--bg2));border-top:1px solid var(--line);padding:10px 14px 8px}
+.info .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:5px}
+.info .num{font-size:9.5px;letter-spacing:.06em;color:#0e141b;background:var(--gold);border-radius:99px;padding:2px 8px;font-weight:700;flex:none}
+.info h3{margin:0;font-size:15.5px;letter-spacing:.04em;font-weight:700;flex:1;min-width:0}
+.info .tm{font-size:10.5px;color:var(--gold);letter-spacing:.03em;flex:none}
+.info p{margin:0;font-size:13px;line-height:1.72;color:#cadaea;height:5.16em;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.info p b{color:#fff;font-weight:600}
+
+.steps{flex:none;display:flex;align-items:center;gap:10px;padding:8px 14px calc(var(--safe-b) + 10px);background:var(--bg2);border-top:1px solid var(--line)}
+.steps .nav{width:44px;height:44px;border-radius:12px;border:1px solid var(--line2);background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:17px;flex:none}
+.steps .nav:disabled{opacity:.3}
+.steps .nav:active:not(:disabled){background:var(--panel2)}
+.dots{flex:1;display:flex;align-items:center;justify-content:space-between;position:relative;height:44px}
+.dots::before{content:"";position:absolute;left:6px;right:6px;top:50%;height:2px;background:var(--line);border-radius:2px}
+.dots button{position:relative;width:28px;height:44px;display:flex;align-items:center;justify-content:center}
+.dots i{display:block;width:11px;height:11px;border-radius:99px;background:var(--line2);border:2px solid var(--bg2);transition:all .25s}
+.dots button.done i{background:var(--gold-dim)}
+.dots button.cur i{background:var(--gold);width:16px;height:16px;box-shadow:0 0 0 4px #d8ab5b26}
+
+/* SVG内 */
+.u-lbl{font-size:25px;font-weight:700;paint-order:stroke;stroke:#0a1016;stroke-width:6px;stroke-linejoin:round}
+.u-num{font-size:19px;fill:#adc0d2;paint-order:stroke;stroke:#0a1016;stroke-width:5px;stroke-linejoin:round}
+.pl-lbl{font-size:20px;fill:#9db2c6;paint-order:stroke;stroke:#0a1016;stroke-width:5px;stroke-linejoin:round}
+.geo-lbl{font-size:21px;fill:#5f7b93;letter-spacing:.14em;paint-order:stroke;stroke:#0a1016;stroke-width:5px;stroke-linejoin:round}
+.ar-lbl{font-size:21px;font-weight:700;paint-order:stroke;stroke:#0a1016;stroke-width:5px;stroke-linejoin:round}
+.unit{transition:transform .68s cubic-bezier(.45,.05,.25,1),opacity .4s}
+.unit.gone{opacity:0}
+.unit.fallen{opacity:.4}
+.arrow{stroke-linecap:round;fill:none}
+.arrow.dash{animation:march 1.1s linear infinite}
+@keyframes march{to{stroke-dashoffset:-26}}
+.ring{animation:pulse 1.8s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pulse{0%,100%{opacity:.9;r:var(--r0)}50%{opacity:.18;r:var(--r1)}}
+</style>
+</head>
+<body>
+
+<!-- ============ ホーム ============ -->
+<section id="home" class="screen on">
+  <div class="hero">
+    <div class="mark">⚔</div>
+    <h1>戦国合戦絵巻</h1>
+    <p>勢力図と部隊の動きで追う、四つの決戦。<br>局面を送りながら、戦の流れを目で確かめる。</p>
+  </div>
+  <div class="list" id="cards"></div>
+  <div class="credits">
+    兵力・時刻は主要な通説にもとづく概数です。<br>
+    地図は位置関係を伝えるための模式図であり、実際の縮尺・地形とは異なります。<br>
+    方位は各図の左下（関ヶ原は右下）の方位記号を参照してください。
+  </div>
+</section>
+
+<!-- ============ 詳細 ============ -->
+<section id="battle" class="screen">
+  <header class="top">
+    <button class="back" id="back">‹ 一覧</button>
+    <div class="ttl"><b id="bTitle"></b><span id="bMeta"></span></div>
+    <div class="rst" id="bResult"></div>
+  </header>
+
+  <div class="gauge">
+    <div class="lbls">
+      <div class="g"><span class="dot" id="gd0"></span><span class="nm" id="gn0"></span><span class="tr" id="gt0"></span></div>
+      <div class="g"><span class="tr" id="gt1"></span><span class="nm" id="gn1"></span><span class="dot" id="gd1"></span></div>
+    </div>
+    <div class="bar"><i id="gb0"></i><i id="gb1"></i></div>
+  </div>
+
+  <div class="mapwrap" id="mapwrap">
+    <svg class="map" id="map" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div class="legend" id="legend"></div>
+    <div class="zoombtns">
+      <button id="zin" aria-label="拡大">＋</button>
+      <button id="zout" aria-label="縮小">−</button>
+      <button id="zrst" aria-label="表示を戻す" style="font-size:12px">⤢</button>
+    </div>
+  </div>
+
+  <div class="info">
+    <div class="ph">
+      <span class="num" id="pNum"></span>
+      <h3 id="pTitle"></h3>
+      <span class="tm" id="pTime"></span>
+    </div>
+    <p id="pText"></p>
+  </div>
+
+  <nav class="steps">
+    <button class="nav" id="prev" aria-label="前の局面">‹</button>
+    <div class="dots" id="dots"></div>
+    <button class="nav" id="next" aria-label="次の局面">›</button>
+  </nav>
+</section>
+
+<script>
+"use strict";
+/* =====================================================================
+   データ定義
+     vb      : SVG viewBox（縦長。iPhone の画面比に合わせてある）
+     compass : 方位記号の位置と、真北を指す角度（0=上, 90=右, -90=左）
+     pos     : { 局面番号: [x,y] }  指定のない局面は直前の座標を継承
+     born/dead/exit : 登場する局面／壊滅・討死する局面／退場する局面
+     flip    : 寝返る局面（以降、相手方の色で描画）
+     adv     : その局面の優勢度（0 = 左の軍が完全優勢, 1 = 右の軍が完全優勢）
+   ===================================================================== */
+const BATTLES = [
+{
+  id:"okehazama", name:"桶狭間の戦い", year:1560, date:"永禄3年5月19日",
+  place:"尾張国 桶狭間", result:"織田軍の勝利", short:"織田勝利",
+  tagline:"寡兵二千が、二万五千の本陣を突く",
+  vb:"0 0 800 1160", compass:{x:105,y:1070,a:0},
+  sides:[
+    {key:"oda", name:"織田信長", color:"#e8455f", total:3000,  label:"約3,000"},
+    {key:"ima", name:"今川義元", color:"#4d8ef7", total:25000, label:"約25,000"}
+  ],
+  terrain:[
+    {t:"water", d:"M0,1160 L0,780 C60,778 110,808 148,862 C192,924 214,1000 222,1075 L228,1160 Z"},
+    {t:"hill", x:625, y:795, rx:135, ry:100},
+    {t:"hill", x:645, y:1005, rx:150, ry:95},
+    {t:"hill", x:735, y:650, rx:110, ry:105},
+    {t:"river", d:"M290,1130 C298,1030 282,935 248,875 C208,805 158,772 100,762", w:11},
+    {t:"road", d:"M150,175 C170,260 195,340 218,398 C300,428 380,455 458,478 C540,505 640,535 722,558"},
+    {t:"road", d:"M218,398 C242,520 262,690 292,865"}
+  ],
+  labels:[
+    {x:120,y:960,t:"伊 勢 湾",c:"#3f6f8c"},
+    {x:625,y:690,t:"桶狭間山"},
+    {x:420,y:250,t:"尾 張 平 野"},
+    {x:200,y:1000,t:"扇川",c:"#3f7fa0"}
+  ],
+  places:[
+    {x:150,y:150,n:"清洲城",k:"castle",lo:"top"},
+    {x:218,y:398,n:"熱田神宮",k:"shrine",lo:"left"},
+    {x:458,y:478,n:"鳴海城",k:"castle",lo:"left"},
+    {x:385,y:560,n:"善照寺砦",k:"fort",lo:"right"},
+    {x:400,y:660,n:"中島砦",k:"fort",lo:"right"},
+    {x:322,y:752,n:"鷲津砦",k:"fort",lo:"bottom"},
+    {x:452,y:838,n:"丸根砦",k:"fort",lo:"bottom"},
+    {x:312,y:898,n:"大高城",k:"castle",lo:"left"},
+    {x:722,y:558,n:"沓掛城",k:"castle",lo:"top"}
+  ],
+  units:[
+    {id:"nobu", side:"oda", n:"織田信長", tr:2000, lo:"left",
+     pos:{0:[152,205], 1:[228,440], 2:[392,712], 3:[494,768], 4:[580,796]}},
+    {id:"nobumori", side:"oda", n:"佐久間信盛", tr:1000, lo:"left",
+     pos:{0:[348,552]}},
+    {id:"morishige", side:"oda", n:"佐久間盛重", tr:400, lo:"left", dead:1,
+     pos:{0:[452,838]}},
+    {id:"hidetoshi", side:"oda", n:"織田秀敏", tr:300, lo:"left", dead:1,
+     pos:{0:[258,748]}},
+    {id:"yoshi", side:"ima", n:"今川義元", tr:5000, lo:"top", dead:4,
+     pos:{0:[726,608], 1:[694,706], 2:[672,856]}},
+    {id:"asahina", side:"ima", n:"朝比奈泰朝", tr:2000, lo:"left",
+     pos:{0:[232,672], 1:[286,754], 2:[300,630], 4:[506,606]}},
+    {id:"matsui", side:"ima", n:"松井宗信", tr:2000, lo:"right", dead:4,
+     pos:{0:[556,918], 1:[490,868], 2:[548,900]}},
+    {id:"motoyasu", side:"ima", n:"松平元康", tr:1000, lo:"bottom", exit:4,
+     pos:{0:[382,968], 1:[318,916]}},
+    {id:"okabe", side:"ima", n:"岡部元信", tr:1500, lo:"right",
+     pos:{0:[492,446]}}
+  ],
+  phases:[
+    {t:"今川、尾張へ進発", tm:"5月18日", adv:.86,
+     x:"今川義元が<b>約2万5千</b>の大軍を率い、駿河・遠江・三河から尾張へ侵攻。沓掛城に入ると、大高城への補給路をふさぐ織田方の<b>丸根砦・鷲津砦</b>への攻撃を命じた。対する信長が動員できる兵は、せいぜい数千にすぎない。",
+     arrows:[{f:[726,608],t:[664,724],s:"ima"},{f:[248,696],t:[288,746],s:"ima"},{f:[544,904],t:[492,864],s:"ima"}],
+     focus:["yoshi"]},
+    {t:"丸根・鷲津 陥落", tm:"5月19日 未明〜朝", adv:.88,
+     x:"未明、両砦は猛攻を受け、<b>佐久間盛重・織田秀敏</b>が討死して陥落。松平元康は大高城への兵糧入れに成功する。報せを受けた信長は幸若舞『敦盛』を舞うと、わずかな供回りだけで清洲を飛び出し、熱田神宮で戦勝を祈願した。",
+     arrows:[{f:[152,215],t:[222,420],s:"oda",lb:"清洲を出陣"}],
+     focus:["nobu"]},
+    {t:"義元、桶狭間山に憩う", tm:"5月19日 昼", adv:.8,
+     x:"連勝の報に、義元は本隊を<b>桶狭間山</b>へ進めて休息をとり、酒宴を開いたと伝わる。一方の信長は善照寺砦で兵をまとめ、さらに最前線の<b>中島砦</b>へ進出。周囲の制止を振り切り、敵中に躍り出た。",
+     arrows:[{f:[696,714],t:[678,832],s:"ima"},{f:[244,478],t:[386,682],s:"oda"}],
+     focus:["nobu","yoshi"]},
+    {t:"豪雨、そして急襲", tm:"5月19日 午後1時頃", adv:.45,
+     x:"折からの<b>激しい雷雨</b>が今川勢の視界と警戒を奪う。信長は中島砦を出て桶狭間山へ肉薄し、雨が上がると同時に全軍で本陣めがけて突撃した。前線へ兵を割いた義元の周囲は、手薄になっていた。",
+     arrows:[{f:[406,708],t:[506,776],s:"oda",lb:"本陣へ突撃",big:1,lbo:[-46,-8]}],
+     focus:["nobu"]},
+    {t:"義元、討死", tm:"5月19日 午後2時頃", adv:.08,
+     x:"混乱のなか本陣は崩れ、<b>毛利新介</b>が今川義元を討ち取った。総大将を失った今川軍は総崩れとなって退却。大高城の松平元康は岡崎城へ引き揚げ、やがて今川から独立する。<b>信長の名は一夜にして天下に轟いた。</b>",
+     arrows:[{f:[600,806],t:[648,842],s:"oda",big:1},{f:[318,916],t:[420,1046],s:"ima",lb:"岡崎へ",dot:1,lbo:[-46,10]}],
+     focus:["nobu"]}
+  ]
+},
+{
+  id:"kawanakajima", name:"第四次 川中島の戦い", year:1561, date:"永禄4年9月10日",
+  place:"信濃国 川中島 八幡原", result:"引き分け（痛み分け）", short:"引分",
+  tagline:"龍虎、五度目の対決。最大の激戦",
+  vb:"0 0 800 1160", compass:{x:105,y:1070,a:0},
+  sides:[
+    {key:"take", name:"武田信玄", color:"#d9483c", total:20000, label:"約20,000"},
+    {key:"uesu", name:"上杉謙信", color:"#3fa3d6", total:13000, label:"約13,000"}
+  ],
+  terrain:[
+    {t:"hill", x:640, y:960, rx:150, ry:105},
+    {t:"hill", x:120, y:850, rx:120, ry:95},
+    {t:"hill", x:770, y:640, rx:120, ry:130},
+    {t:"river", d:"M770,1150 C670,1005 575,860 505,700 C445,560 398,440 372,340", w:19},
+    {t:"river", d:"M372,340 C358,255 344,180 338,96", w:19},
+    {t:"river", d:"M20,530 C110,508 222,458 302,396 C328,376 352,356 372,340", w:15},
+    {t:"road", d:"M244,150 C300,260 372,410 452,540 C530,668 620,760 700,824"}
+  ],
+  labels:[
+    {x:178,y:626,t:"八 幡 原"},
+    {x:556,y:1114,t:"妻女山"},
+    {x:118,y:806,t:"茶臼山"},
+    {x:452,y:284,t:"千曲川",c:"#3f7fa0"},
+    {x:96,y:490,t:"犀川",c:"#3f7fa0"}
+  ],
+  places:[
+    {x:244,y:148,n:"善光寺",k:"temple",lo:"top"},
+    {x:688,y:720,n:"海津城",k:"castle",lo:"right"},
+    {x:556,y:806,n:"雨宮の渡",k:"ford",lo:"left"}
+  ],
+  units:[
+    {id:"shingen", side:"take", n:"武田信玄", tr:8000, lo:"left",
+     pos:{0:[664,690], 1:[330,600], 3:[318,592]}},
+    {id:"nobushige", side:"take", n:"武田信繁", tr:2000, lo:"left", dead:3,
+     pos:{0:[700,600], 1:[398,688]}},
+    {id:"kansuke", side:"take", n:"山本勘助", tr:1000, lo:"left", dead:3,
+     pos:{0:[576,632], 1:[286,506]}},
+    {id:"betsu", side:"take", n:"武田別働隊", tr:12000, lo:"left",
+     pos:{0:[692,830], 1:[664,904], 2:[560,1000], 4:[452,742]}},
+    {id:"kenshin", side:"uesu", n:"上杉謙信", tr:8000, lo:"right",
+     pos:{0:[556,952], 2:[556,806], 3:[430,606], 4:[272,336]}},
+    {id:"kakizaki", side:"uesu", n:"柿崎景家", tr:3000, lo:"left",
+     pos:{0:[634,1010], 2:[604,754], 3:[486,524], 4:[228,442]}},
+    {id:"amakasu", side:"uesu", n:"甘粕景持", tr:1000, lo:"left",
+     pos:{0:[470,1042], 2:[604,884], 4:[300,764]}}
+  ],
+  phases:[
+    {t:"妻女山と海津城の対陣", tm:"8月中旬〜", adv:.5,
+     x:"上杉謙信は<b>1万3千</b>を率いて越後を発ち、武田方の海津城を見下ろす<b>妻女山</b>に陣を敷いた。武田信玄は<b>2万</b>で茶臼山に布陣したのち海津城へ入る。両軍はにらみ合ったまま、実に一か月近くが過ぎた。",
+     arrows:[], focus:["shingen","kenshin"]},
+    {t:"啄木鳥の戦法", tm:"9月9日 夜", adv:.62,
+     x:"軍師<b>山本勘助</b>の献策と伝わる作戦。高坂昌信・馬場信春の<b>別働隊1万2千</b>が夜陰に紛れて妻女山を背後から襲い、驚いて山を下る上杉勢を、八幡原に布陣した<b>本隊8千</b>が待ち受けて叩く——啄木鳥が木を叩いて虫を追い出すのに似た挟撃策である。",
+     arrows:[{f:[690,858],t:[652,944],s:"take",lb:"妻女山へ",dash:1,lbo:[66,-6]},{f:[640,682],t:[372,600],s:"take",lb:"八幡原へ布陣",lbo:[0,-8]}],
+     focus:["betsu"]},
+    {t:"謙信、山を下る", tm:"9月10日 未明", adv:.38,
+     x:"謙信は海津城から立ちのぼる<b>炊煙の異変</b>から作戦を見抜いたと伝わる。全軍に枚を含ませ、篝火だけを残して静かに妻女山を下り、<b>雨宮の渡</b>で千曲川を渡河。夜明けの深い霧のなか、武田本隊の正面へ迫った。",
+     arrows:[{f:[560,922],t:[558,838],s:"uesu",lb:"渡河",dash:1,lbo:[56,14]}],
+     focus:["kenshin"]},
+    {t:"八幡原の激突", tm:"9月10日 午前8時頃", adv:.3,
+     x:"霧が晴れると、鶴翼に構えた武田勢の眼前に上杉の大軍がいた。謙信は<b>車懸りの陣</b>で次々と部隊を繰り出して本陣に迫り、武田は乱戦に陥る。信玄の弟<b>武田信繁</b>、軍師<b>山本勘助</b>、諸角虎定らが相次いで討死。信玄自身も床几を離れられぬ危地に立った。",
+     arrows:[{f:[420,608],t:[352,596],s:"uesu",big:1,lb:"車懸り"},{f:[318,592],t:[368,586],s:"take"}],
+     focus:["kenshin","shingen"]},
+    {t:"別働隊到着、そして撤退", tm:"9月10日 正午頃", adv:.55,
+     x:"もぬけの殻の妻女山から取って返した別働隊1万2千が戦場に到着し、上杉軍を<b>挟撃</b>。形勢は逆転し、謙信は犀川を渡って善光寺方面へ退いた。両軍あわせて数千の死傷を出しながら決着はつかず、<b>戦国屈指の激戦</b>として語り継がれる。",
+     arrows:[{f:[576,972],t:[482,780],s:"take",lb:"挟撃",dash:1,lbo:[46,16]},{f:[318,462],t:[254,302],s:"uesu",lb:"善光寺へ",dot:1,lbo:[-26,-88]}],
+     focus:["betsu"]}
+  ]
+},
+{
+  id:"nagashino", name:"長篠の戦い", year:1575, date:"天正3年5月21日",
+  place:"三河国 設楽原", result:"織田・徳川連合軍の勝利", short:"連合軍勝利",
+  tagline:"馬防柵と鉄砲が、最強騎馬軍団を砕く",
+  vb:"0 0 800 1050", compass:{x:96,y:966,a:-90},
+  sides:[
+    {key:"odt",  name:"織田・徳川", color:"#4d8ef7", total:38000, label:"約38,000"},
+    {key:"take", name:"武田勝頼",   color:"#d9483c", total:15000, label:"約15,000"}
+  ],
+  terrain:[
+    {t:"hill", x:225, y:880, rx:145, ry:105},
+    {t:"hill", x:520, y:862, rx:120, ry:90},
+    {t:"hill", x:235, y:232, rx:130, ry:100},
+    {t:"hill", x:596, y:206, rx:105, ry:82},
+    {t:"river", d:"M30,150 C180,112 320,92 430,88 C550,84 680,100 780,126", w:17},
+    {t:"river", d:"M20,536 C200,548 400,560 580,570 C660,574 720,578 782,584", w:11},
+    {t:"fence", d:"M60,646 L760,668"},
+    {t:"fence", d:"M66,690 L754,710"},
+    {t:"fence", d:"M74,734 L748,752"}
+  ],
+  labels:[
+    {x:130,y:606,t:"設 楽 原"},
+    {x:225,y:820,t:"極楽寺山"},
+    {x:520,y:790,t:"弾正山"},
+    {x:235,y:170,t:"医王寺山"},
+    {x:596,y:150,t:"鳶ヶ巣山"},
+    {x:276,y:532,t:"連吾川",c:"#3f7fa0"},
+    {x:112,y:118,t:"寒狭川",c:"#3f7fa0"},
+    {x:672,y:812,t:"三 重 の 馬 防 柵",c:"#a98a55"}
+  ],
+  places:[
+    {x:430,y:92,n:"長篠城",k:"castle",lo:"right"},
+    {x:596,y:204,n:"鳶ヶ巣山砦",k:"fort",lo:"left"}
+  ],
+  units:[
+    {id:"nobu", side:"odt", n:"織田信長", tr:30000, lo:"left", born:1,
+     pos:{1:[218,890]}},
+    {id:"ieyasu", side:"odt", n:"徳川家康", tr:8000, lo:"right", born:1,
+     pos:{1:[524,868]}},
+    {id:"sakai", side:"odt", n:"酒井忠次", tr:4000, lo:"left", born:2,
+     pos:{2:[646,946], 3:[688,318]}},
+    {id:"okudaira", side:"odt", n:"奥平貞昌", tr:500, lo:"left",
+     pos:{0:[424,132]}},
+    {id:"katsuyori", side:"take", n:"武田勝頼", tr:3000, lo:"left",
+     pos:{0:[262,262], 2:[318,398], 3:[344,452]}},
+    {id:"yamagata", side:"take", n:"山県昌景", tr:1500, lo:"right", dead:4,
+     pos:{0:[520,340], 2:[556,404], 3:[556,502]}},
+    {id:"baba", side:"take", n:"馬場信春", tr:1000, lo:"left", dead:4,
+     pos:{0:[176,330], 2:[190,404], 3:[190,498]}},
+    {id:"naito", side:"take", n:"内藤昌豊", tr:1000, lo:"right", dead:4,
+     pos:{0:[400,318], 2:[404,452], 3:[366,500]}},
+    {id:"kawakubo", side:"take", n:"河窪信実", tr:1000, lo:"left", dead:2,
+     pos:{0:[600,252]}}
+  ],
+  phases:[
+    {t:"長篠城、包囲される", tm:"5月1日〜", adv:.72,
+     x:"武田勝頼が<b>1万5千</b>を率いて三河へ侵攻し、長篠城を包囲した。城を守るのは徳川方の<b>奥平貞昌ら約500</b>。兵糧庫を焼かれ落城寸前まで追い込まれながら、城兵は必死に持ちこたえる。",
+     arrows:[{f:[276,250],t:[386,124],s:"take"},{f:[510,322],t:[464,124],s:"take"}],
+     focus:["okudaira"]},
+    {t:"援軍到着、馬防柵を築く", tm:"5月18日", adv:.42,
+     x:"城を脱出した<b>鳥居強右衛門</b>が援軍の到来を伝え、磔にされながらもそれを城兵に叫んだ逸話で知られる。織田信長<b>3万</b>・徳川家康<b>8千</b>が設楽原に着陣。連吾川の西岸に<b>三重の馬防柵</b>を築き、鉄砲隊を並べて武田を待ち構えた。",
+     arrows:[{f:[214,1020],t:[218,930],s:"odt",lb:"着陣",lbo:[-46,0]},{f:[540,1015],t:[528,908],s:"odt"}],
+     focus:["nobu","ieyasu"]},
+    {t:"鳶ヶ巣山への奇襲", tm:"5月21日 未明", adv:.3,
+     x:"徳川家臣<b>酒井忠次</b>の献策により、別働隊<b>4千</b>が夜のうちに南から大きく迂回。夜明け前に長篠城を見下ろす<b>鳶ヶ巣山砦</b>を急襲して陥落させ、包囲を解いた。退路を脅かされた勝頼は、決戦に踏み切らざるを得なくなる。",
+     arrows:[{f:[664,930],t:[692,364],s:"odt",lb:"迂回奇襲",dash:1,lbo:[-62,0]}],
+     focus:["sakai"]},
+    {t:"騎馬隊、馬防柵へ", tm:"5月21日 午前6時頃", adv:.3,
+     x:"武田軍は雨上がりのぬかるむ<b>連吾川</b>を渡り、山県・内藤・馬場らの部隊が波状に突撃。しかし柵に阻まれて足を止められたところへ、<b>約3千挺</b>とされる鉄砲が繰り返し斉射を浴びせた。突撃は何度も繰り返され、そのたびに前列が薙ぎ払われる。",
+     arrows:[{f:[556,530],t:[556,632],s:"take",big:1},{f:[366,528],t:[366,634],s:"take",big:1},{f:[190,526],t:[190,630],s:"take",big:1}],
+     focus:["yamagata","baba","naito"]},
+    {t:"武田軍、壊滅", tm:"5月21日 午後2時頃", adv:.06,
+     x:"約8時間の激闘の末、武田軍は<b>山県昌景・馬場信春・内藤昌豊・原昌胤</b>ら歴戦の宿将を一挙に失って壊滅。勝頼はわずかな供とともに信濃へ敗走した。名門武田氏は再起できぬ打撃を受け、<b>7年後に滅亡する。</b>",
+     arrows:[{f:[344,452],t:[196,346],s:"take",lb:"信濃へ",dot:1,lbo:[0,-14]},
+             {f:[268,632],t:[268,548],s:"odt",big:1},{f:[470,636],t:[470,552],s:"odt",big:1}],
+     focus:["katsuyori"]}
+  ]
+},
+{
+  id:"sekigahara", name:"関ヶ原の戦い", year:1600, date:"慶長5年9月15日",
+  place:"美濃国 関ヶ原", result:"東軍の勝利", short:"東軍勝利",
+  tagline:"天下分け目、六時間の決着",
+  vb:"0 0 800 1160", compass:{x:104,y:1078,a:90},
+  sides:[
+    {key:"west", name:"西軍（石田三成）", color:"#4d8ef7", total:82000, label:"約82,000"},
+    {key:"east", name:"東軍（徳川家康）", color:"#e8455f", total:74000, label:"約74,000"}
+  ],
+  terrain:[
+    {t:"hill", x:600, y:170, rx:120, ry:95},
+    {t:"hill", x:392, y:250, rx:115, ry:98},
+    {t:"hill", x:168, y:300, rx:125, ry:110},
+    {t:"hill", x:180, y:940, rx:150, ry:150},
+    {t:"hill", x:756, y:520, rx:110, ry:270},
+    {t:"hill", x:44,  y:640, rx:105, ry:300},
+    {t:"road", d:"M436,40 C412,300 414,700 442,1130"},
+    {t:"road", d:"M440,570 C530,548 630,528 730,516"},
+    {t:"road", d:"M438,616 C336,664 210,714 96,752"}
+  ],
+  labels:[
+    {x:604,y:96,t:"笹尾山"},
+    {x:392,y:172,t:"天満山"},
+    {x:150,y:214,t:"松尾山"},
+    {x:146,y:794,t:"南宮山"},
+    {x:566,y:1040,t:"桃配山"},
+    {x:322,y:706,t:"関 ヶ 原"},
+    {x:700,y:600,t:"北国街道",c:"#4a6274"},
+    {x:452,y:1128,t:"中山道",c:"#4a6274"}
+  ],
+  places:[],
+  units:[
+    {id:"mitsunari", side:"west", n:"石田三成", tr:6000, lo:"top",
+     pos:{0:[596,204], 4:[700,158]}},
+    {id:"konishi", side:"west", n:"小西行長", tr:4000, lo:"right", dead:4,
+     pos:{0:[470,238]}},
+    {id:"ukita", side:"west", n:"宇喜多秀家", tr:17000, lo:"left", dead:4,
+     pos:{0:[380,318], 1:[398,384]}},
+    {id:"shimazu", side:"west", n:"島津義弘", tr:1500, lo:"left",
+     pos:{0:[524,318], 4:[208,742]}},
+    {id:"otani", side:"west", n:"大谷吉継", tr:5000, lo:"left", dead:3,
+     pos:{0:[296,458]}},
+    {id:"kobayakawa", side:"west", n:"小早川秀秋", tr:15600, lo:"left", flip:3,
+     pos:{0:[196,336], 3:[240,396]}},
+    {id:"mori", side:"west", n:"毛利・吉川", tr:15000, lo:"bottom",
+     pos:{0:[190,940]}},
+    {id:"ieyasu", side:"east", n:"徳川家康", tr:30000, lo:"right",
+     pos:{0:[532,986], 3:[466,676]}},
+    {id:"masanori", side:"east", n:"福島正則", tr:6000, lo:"bottom",
+     pos:{0:[326,570], 1:[338,484]}},
+    {id:"kuroda", side:"east", n:"黒田・細川", tr:9000, lo:"right",
+     pos:{0:[586,548], 1:[600,388]}},
+    {id:"ii", side:"east", n:"井伊・松平", tr:6000, lo:"right",
+     pos:{0:[452,566], 1:[470,452]}},
+    {id:"tanaka", side:"east", n:"池田・浅野", tr:12000, lo:"top",
+     pos:{0:[352,858]}}
+  ],
+  phases:[
+    {t:"両軍布陣", tm:"9月15日 未明", adv:.44,
+     x:"深い霧のなか、両軍あわせて<b>15万を超える</b>兵が狭い盆地に布陣した。西軍は笹尾山の石田三成を起点に、天満山・松尾山・南宮山と<b>鶴翼の陣</b>で東軍を三方から囲む理想的な配置。ただし小早川秀秋と毛利勢は、すでに東軍への内通を重ねていた。",
+     arrows:[], focus:["mitsunari","ieyasu"]},
+    {t:"開戦", tm:"午前8時頃", adv:.46,
+     x:"霧が晴れると同時に、<b>井伊直政・松平忠吉</b>が抜け駆けして宇喜多隊へ発砲。先鋒を任されていた福島正則がこれに続き、戦端が開かれた。黒田長政・細川忠興らも石田隊に殺到し、盆地全体が乱戦となる。",
+     arrows:[{f:[336,556],t:[398,428],s:"east",big:1},{f:[598,528],t:[608,254],s:"east"},{f:[458,548],t:[468,482],s:"east"}],
+     focus:["ii","masanori"]},
+    {t:"一進一退、動かぬ毛利", tm:"午前10時頃", adv:.4,
+     x:"石田隊は<b>島左近</b>・蒲生郷舎の奮戦で東軍を押し返し、宇喜多隊も福島隊と互角に渡り合う。戦況はむしろ西軍優勢に傾いた。しかし南宮山の毛利勢は、<b>吉川広家</b>が家康に内通して進路を塞ぎ、ついに一兵も動かさなかった。",
+     arrows:[{f:[606,244],t:[606,352],s:"west",big:1},{f:[406,420],t:[346,506],s:"west"},{f:[214,924],t:[292,876],s:"west",dot:1,lb:"動かず",lbo:[8,-8]}],
+     focus:["mitsunari","mori"]},
+    {t:"小早川秀秋、裏切る", tm:"正午過ぎ", adv:.72,
+     x:"去就を決めかねる秀秋に業を煮やした家康は、松尾山へ<b>問鉄砲</b>を撃ちかけたと伝わる。ほどなく<b>小早川勢1万5千6百</b>が山を駆け下り、眼下の大谷吉継隊に襲いかかった。脇坂・朽木・小川・赤座の4隊も相次いで寝返る。家康も本陣を陣場野へ前進させた。",
+     arrows:[{f:[214,372],t:[266,446],s:"east",big:1,lb:"裏切り",lbo:[-30,-96]},{f:[532,962],t:[486,712],s:"east",lb:"本陣前進",lbo:[62,0]}],
+     focus:["kobayakawa","otani"]},
+    {t:"西軍壊滅", tm:"午後2時頃", adv:.94,
+     x:"三方から突かれた<b>大谷吉継は自刃</b>。支えを失った宇喜多・小西・石田の各隊も総崩れとなった。<b>島津義弘</b>はわずか数百で東軍のただ中を正面突破して戦場を脱する（島津の退き口）。三成は伊吹山へ逃れたが後に捕らえられ、<b>徳川の世が始まった。</b>",
+     arrows:[{f:[366,492],t:[326,472],s:"east",big:1},{f:[452,486],t:[430,410],s:"east",big:1},
+             {f:[524,336],t:[228,718],s:"west",lb:"島津の退き口",dot:1,lbo:[-10,120]}],
+     focus:["otani","shimazu"]}
+  ]
+}
+];
+
+/* ===================== 小物 ===================== */
+const $  = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const el = (n,a={}) => { const e=document.createElementNS(NS,n); for(const k in a) e.setAttribute(k,a[k]); return e; };
+const fmt = n => n.toLocaleString("ja-JP");
+const radius = t => 10 + Math.sqrt(t)/6.5;
+
+/* ===================== ホーム ===================== */
+function buildHome(){
+  const wrap = $("#cards");
+  wrap.innerHTML = "";
+  BATTLES.forEach(b=>{
+    const [A,B] = b.sides;
+    const sum = A.total + B.total;
+    const c = document.createElement("button");
+    c.className = "card";
+    c.innerHTML = `
+      <span class="yr">${b.year}</span>
+      <h2>${b.name}</h2>
+      <p class="sub">${b.date} ／ ${b.place}</p>
+      <div class="vs">
+        <span class="nm" style="color:${A.color}">${A.name}</span>
+        <span class="x">VS</span>
+        <span class="nm r" style="color:${B.color}">${B.name}</span>
+      </div>
+      <div class="bar">
+        <i style="width:${A.total/sum*100}%;background:${A.color}"></i>
+        <i style="width:${B.total/sum*100}%;background:${B.color}"></i>
+      </div>
+      <div class="nums"><span>${A.label}</span><span>${B.label}</span></div>
+      <span class="tag">${b.tagline}</span>`;
+    c.addEventListener("click", ()=>openBattle(b));
+    wrap.appendChild(c);
+  });
+}
+
+/* ===================== 状態 ===================== */
+let cur = null, phase = 0;
+const gfx = { units:{}, arrows:null, view:null };
+
+function openBattle(b){
+  cur = b; phase = 0;
+  $("#bTitle").textContent  = b.name;
+  $("#bMeta").textContent   = `${b.date}　${b.place}`;
+  $("#bResult").textContent = b.short;
+
+  const [A,B] = b.sides;
+  $("#gd0").style.background = A.color; $("#gn0").textContent = A.name; $("#gt0").textContent = A.label;
+  $("#gd1").style.background = B.color; $("#gn1").textContent = B.name; $("#gt1").textContent = B.label;
+  $("#gb0").style.background = A.color; $("#gb1").style.background = B.color;
+
+  $("#legend").innerHTML = b.sides.map(s=>
+    `<div><span class="sw" style="background:${s.color}"></span><span>${s.name}</span></div>`).join("");
+
+  buildDots(b);
+  buildMap(b);
+  resetView();
+  setPhase(0, true);
+
+  $("#home").classList.remove("on");
+  $("#battle").classList.add("on");
+}
+
+function buildDots(b){
+  const d = $("#dots"); d.innerHTML = "";
+  b.phases.forEach((_,i)=>{
+    const btn = document.createElement("button");
+    btn.innerHTML = "<i></i>";
+    btn.setAttribute("aria-label", `局面${i+1}`);
+    btn.addEventListener("click", ()=>setPhase(i));
+    d.appendChild(btn);
+  });
+}
+
+/* ===================== 地図の構築 ===================== */
+function buildMap(b){
+  const svg = $("#map");
+  svg.innerHTML = "";
+  svg.setAttribute("viewBox", b.vb);
+  svg.setAttribute("preserveAspectRatio","xMidYMid meet");
+
+  const defs = el("defs");
+  const hg = el("radialGradient",{id:"hillG"});
+  hg.appendChild(el("stop",{offset:"0%","stop-color":"#3b5064"}));
+  hg.appendChild(el("stop",{offset:"100%","stop-color":"#22303d","stop-opacity":"0"}));
+  defs.appendChild(hg);
+  b.sides.forEach(s=>{
+    const m = el("marker",{id:"mk-"+s.key, viewBox:"0 0 10 10", refX:"7.5", refY:"5",
+      markerWidth:"4.4", markerHeight:"4.4", orient:"auto-start-reverse"});
+    m.appendChild(el("path",{d:"M0,1 L9.5,5 L0,9 L2.2,5 Z", fill:s.color}));
+    defs.appendChild(m);
+  });
+  svg.appendChild(defs);
+
+  const view = el("g"); svg.appendChild(view); gfx.view = view;
+  const gTerrain=el("g"), gLbl=el("g"), gPlace=el("g"), gArrow=el("g"), gUnit=el("g");
+  [gTerrain,gLbl,gPlace,gArrow,gUnit].forEach(g=>view.appendChild(g));
+  gfx.arrows = gArrow;
+
+  /* --- 地形 --- */
+  (b.terrain||[]).forEach(f=>{
+    if(f.t==="hill"){
+      gTerrain.appendChild(el("ellipse",{cx:f.x,cy:f.y,rx:f.rx,ry:f.ry,fill:"url(#hillG)"}));
+      gTerrain.appendChild(el("ellipse",{cx:f.x,cy:f.y,rx:f.rx,ry:f.ry,fill:"none",
+        stroke:"#3d566c",'stroke-width':1.6,"stroke-dasharray":"7 8",opacity:.55}));
+      gTerrain.appendChild(el("ellipse",{cx:f.x,cy:f.y,rx:f.rx*.56,ry:f.ry*.56,fill:"none",
+        stroke:"#3d566c",'stroke-width':1.4,"stroke-dasharray":"6 9",opacity:.38}));
+    }
+    if(f.t==="water"){
+      gTerrain.appendChild(el("path",{d:f.d,fill:"#123449",opacity:.92}));
+      gTerrain.appendChild(el("path",{d:f.d,fill:"none",stroke:"#2f7ba6",'stroke-width':2,opacity:.5}));
+    }
+    if(f.t==="river"){
+      gTerrain.appendChild(el("path",{d:f.d,fill:"none",stroke:"#16405a",
+        'stroke-width':(f.w||12)+5,"stroke-linecap":"round"}));
+      gTerrain.appendChild(el("path",{d:f.d,fill:"none",stroke:"#2b7099",
+        'stroke-width':f.w||12,"stroke-linecap":"round",opacity:.92}));
+    }
+    if(f.t==="road"){
+      gTerrain.appendChild(el("path",{d:f.d,fill:"none",stroke:"#4a5c6e",
+        'stroke-width':4,"stroke-dasharray":"11 10","stroke-linecap":"round",opacity:.6}));
+    }
+    if(f.t==="fence"){
+      gTerrain.appendChild(el("path",{d:f.d,fill:"none",stroke:"#8a6d38",
+        'stroke-width':7,"stroke-dasharray":"4 9","stroke-linecap":"round"}));
+    }
+  });
+
+  /* --- 地名 --- */
+  (b.labels||[]).forEach(l=>{
+    const t = el("text",{x:l.x,y:l.y,"text-anchor":"middle",class:"geo-lbl"});
+    if(l.c) t.setAttribute("fill", l.c);
+    t.textContent = l.t;
+    gLbl.appendChild(t);
+  });
+
+  /* --- 城・砦・社寺 --- */
+  (b.places||[]).forEach(p=>{
+    const icon = {castle:"⌂", fort:"▣", shrine:"⛩", temple:"卍", ford:"≋"}[p.k] || "▣";
+    const c = el("text",{x:p.x,y:p.y+9,"text-anchor":"middle","font-size":26,
+      fill:p.k==="castle" ? "#cbb083" : "#8d9db0"});
+    c.textContent = icon;
+    gPlace.appendChild(c);
+    const lo = p.lo||"bottom";
+    const t = el("text",{class:"pl-lbl",
+      x:p.x + (lo==="left"?-20: lo==="right"?20:0),
+      y:p.y + (lo==="top"?-22: lo==="bottom"?38:7),
+      "text-anchor": lo==="left"?"end": lo==="right"?"start":"middle"});
+    t.textContent = p.n;
+    gPlace.appendChild(t);
+  });
+
+  /* --- 方位記号 --- */
+  if(b.compass){
+    const {x,y,a} = b.compass;
+    const g = el("g",{transform:`translate(${x},${y})`, opacity:.75});
+    g.appendChild(el("circle",{r:30,fill:"#0d151d",opacity:.65,stroke:"#3d566c",'stroke-width':1.4}));
+    const n = el("g",{transform:`rotate(${a})`});
+    n.appendChild(el("path",{d:"M0,-22 L7,4 L0,-2 L-7,4 Z", fill:"#c9b184"}));
+    n.appendChild(el("path",{d:"M0,22 L7,-4 L0,2 L-7,-4 Z", fill:"#4a6274"}));
+    g.appendChild(n);
+    const lx = 40*Math.sin(a*Math.PI/180), ly = -40*Math.cos(a*Math.PI/180);
+    const t = el("text",{x:lx, y:ly+7, "text-anchor":"middle", "font-size":20,
+      fill:"#c9b184", "font-weight":700});
+    t.textContent = "北";
+    g.appendChild(t);
+    gLbl.appendChild(g);
+  }
+
+  /* --- 部隊 --- */
+  gfx.units = {};
+  b.units.forEach(u=>{
+    const side = b.sides.find(s=>s.key===u.side);
+    const r = radius(u.tr);
+    const g = el("g",{class:"unit"});
+
+    const ring = el("circle",{class:"ring",r:r+8,fill:"none",stroke:side.color,'stroke-width':3,opacity:0});
+    ring.style.setProperty("--r0",(r+7)+"px");
+    ring.style.setProperty("--r1",(r+20)+"px");
+    g.appendChild(ring);
+
+    g.appendChild(el("circle",{r:r+3,fill:"#0a1016",opacity:.9}));
+    const body = el("circle",{r:r,fill:side.color,"fill-opacity":.33,stroke:side.color,'stroke-width':3.4});
+    g.appendChild(body);
+    const cross = el("path",{
+      d:`M${-r*.58},${-r*.58} L${r*.58},${r*.58} M${r*.58},${-r*.58} L${-r*.58},${r*.58}`,
+      stroke:"#ccd8e4",'stroke-width':3.4,"stroke-linecap":"round",opacity:0});
+    g.appendChild(cross);
+
+    const lo = u.lo || "top";
+    const dx = lo==="left" ? -(r+11) : lo==="right" ? (r+11) : 0;
+    const dy = lo==="top"  ? -(r+20) : lo==="bottom" ? (r+40) : -4;
+    const anc = lo==="left" ? "end" : lo==="right" ? "start" : "middle";
+
+    const name = el("text",{class:"u-lbl",x:dx,y:dy,"text-anchor":anc,fill:side.color});
+    name.textContent = u.n;
+    g.appendChild(name);
+    const num = el("text",{class:"u-num",x:dx,y:dy+22,"text-anchor":anc});
+    num.textContent = fmt(u.tr);
+    g.appendChild(num);
+
+    gUnit.appendChild(g);
+    gfx.units[u.id] = {g, ring, body, cross, name, side, r};
+  });
+}
+
+/* ===================== 局面の反映 ===================== */
+function posAt(u,p){
+  for(let i=p;i>=0;i--) if(u.pos[i]) return u.pos[i];
+  const ks = Object.keys(u.pos).map(Number).sort((a,b)=>a-b);
+  return u.pos[ks[0]];
+}
+
+function setPhase(i, instant){
+  if(!cur) return;
+  phase = Math.max(0, Math.min(cur.phases.length-1, i));
+  const ph = cur.phases[phase];
+
+  $("#pNum").textContent   = `局面 ${phase+1}／${cur.phases.length}`;
+  $("#pTitle").textContent = ph.t;
+  $("#pTime").textContent  = ph.tm || "";
+  $("#pText").innerHTML    = ph.x;
+  $("#pText").scrollTop    = 0;
+
+  [...$("#dots").children].forEach((b,n)=>{
+    b.className = n===phase ? "cur" : (n<phase ? "done" : "");
+  });
+  $("#prev").disabled = phase===0;
+  $("#next").disabled = phase===cur.phases.length-1;
+
+  const adv = ph.adv ?? .5;
+  $("#gb0").style.flex = `${1-adv} 0 0`;
+  $("#gb1").style.flex = `${adv} 0 0`;
+
+  cur.units.forEach(u=>{
+    const G = gfx.units[u.id];
+    const [x,y] = posAt(u, phase);
+    if(instant) G.g.style.transition = "none";
+    G.g.setAttribute("transform", `translate(${x},${y})`);
+    if(instant) requestAnimationFrame(()=>{ G.g.style.transition = ""; });
+
+    const hidden = phase < (u.born ?? 0) || (u.exit != null && phase >= u.exit);
+    const fallen = u.dead != null && phase >= u.dead;
+    G.g.classList.toggle("gone", hidden);
+    G.g.classList.toggle("fallen", fallen && !hidden);
+    G.cross.setAttribute("opacity", fallen ? .9 : 0);
+
+    let side = G.side;
+    if(u.flip != null && phase >= u.flip){
+      side = cur.sides.find(s=>s.key !== u.side);
+      G.body.setAttribute("stroke-dasharray","8 5");
+    } else {
+      G.body.removeAttribute("stroke-dasharray");
+    }
+    G.body.setAttribute("fill", side.color);
+    G.body.setAttribute("stroke", side.color);
+    G.name.setAttribute("fill", side.color);
+    G.ring.setAttribute("stroke", side.color);
+
+    G.ring.setAttribute("opacity", (!hidden && !fallen && (ph.focus||[]).includes(u.id)) ? 1 : 0);
+  });
+
+  /* 矢印 */
+  gfx.arrows.innerHTML = "";
+  (ph.arrows||[]).forEach(a=>{
+    const side = cur.sides.find(s=>s.key===a.s) || cur.sides[0];
+    const [x1,y1] = a.f, [x2,y2] = a.t;
+    const mx=(x1+x2)/2, my=(y1+y2)/2, dx=x2-x1, dy=y2-y1;
+    const len = Math.hypot(dx,dy) || 1;
+    const bow = Math.min(len*0.17, 60);
+    const cx = mx - dy/len*bow, cy = my + dx/len*bow;
+    const d = `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+    const w = a.big ? 10 : 6.5;
+
+    gfx.arrows.appendChild(el("path",{d, class:"arrow", stroke:"#0a1016",
+      'stroke-width':w+6, opacity:.6, "stroke-linecap":"round"}));
+
+    const p = el("path",{d, class:"arrow"+(a.dash?" dash":""), stroke:side.color,
+      'stroke-width':w, "marker-end":`url(#mk-${side.key})`});
+    if(a.dash) p.setAttribute("stroke-dasharray","18 12");
+    if(a.dot){ p.setAttribute("stroke-dasharray","4 12"); p.setAttribute("opacity",".7"); }
+    gfx.arrows.appendChild(p);
+
+    if(a.lb){
+      const o = a.lbo || [0,0];
+      const t = el("text",{x:cx+o[0], y:cy-14+o[1], "text-anchor":"middle", class:"ar-lbl", fill:side.color});
+      t.textContent = a.lb;
+      gfx.arrows.appendChild(t);
+    }
+  });
+}
+
+/* ===================== ズーム・パン ===================== */
+const V = {s:1, x:0, y:0};
+function applyView(){
+  if(gfx.view) gfx.view.setAttribute("transform", `translate(${V.x},${V.y}) scale(${V.s})`);
+}
+function resetView(){ V.s=1; V.x=0; V.y=0; applyView(); }
+function zoomAt(f, px, py){
+  const ns = Math.max(.8, Math.min(4, V.s*f));
+  const k = ns/V.s;
+  V.x = px - (px - V.x)*k;
+  V.y = py - (py - V.y)*k;
+  V.s = ns; applyView();
+}
+function svgPt(cx, cy){
+  const svg = $("#map"), r = svg.getBoundingClientRect(), vb = svg.viewBox.baseVal;
+  if(!vb.width) return [0,0];
+  const sc = Math.min(r.width/vb.width, r.height/vb.height);
+  return [ (cx - r.left - (r.width - vb.width*sc)/2)/sc,
+           (cy - r.top  - (r.height- vb.height*sc)/2)/sc ];
+}
+
+(function gestures(){
+  const wrap = $("#mapwrap");
+  let mode = 0, last = null, lastDist = 0;
+
+  wrap.addEventListener("touchstart", e=>{
+    if(e.touches.length===1){ mode=1; last = svgPt(e.touches[0].clientX, e.touches[0].clientY); }
+    else if(e.touches.length>=2){
+      mode=2;
+      const [a,b] = e.touches;
+      lastDist = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+      last = svgPt((a.clientX+b.clientX)/2, (a.clientY+b.clientY)/2);
+    }
+  }, {passive:true});
+
+  wrap.addEventListener("touchmove", e=>{
+    if(mode===1 && e.touches.length===1){
+      const p = svgPt(e.touches[0].clientX, e.touches[0].clientY);
+      V.x += p[0]-last[0]; V.y += p[1]-last[1]; last = p;
+      applyView(); e.preventDefault();
+    } else if(mode===2 && e.touches.length>=2){
+      const [a,b] = e.touches;
+      const dist = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+      const mid  = svgPt((a.clientX+b.clientX)/2, (a.clientY+b.clientY)/2);
+      if(lastDist>0) zoomAt(dist/lastDist, mid[0], mid[1]);
+      V.x += mid[0]-last[0]; V.y += mid[1]-last[1];
+      lastDist = dist; last = mid;
+      applyView(); e.preventDefault();
+    }
+  }, {passive:false});
+
+  wrap.addEventListener("touchend", e=>{ if(e.touches.length===0) mode=0; }, {passive:true});
+
+  let drag=false, ml=null;
+  wrap.addEventListener("mousedown", e=>{ drag=true; ml=svgPt(e.clientX,e.clientY); });
+  window.addEventListener("mousemove", e=>{
+    if(!drag) return;
+    const p = svgPt(e.clientX, e.clientY);
+    V.x += p[0]-ml[0]; V.y += p[1]-ml[1]; ml = p; applyView();
+  });
+  window.addEventListener("mouseup", ()=>drag=false);
+  wrap.addEventListener("wheel", e=>{
+    const p = svgPt(e.clientX, e.clientY);
+    zoomAt(e.deltaY<0?1.12:1/1.12, p[0], p[1]);
+    e.preventDefault();
+  }, {passive:false});
+})();
+
+/* ===================== 操作 ===================== */
+$("#prev").addEventListener("click", ()=>setPhase(phase-1));
+$("#next").addEventListener("click", ()=>setPhase(phase+1));
+$("#zin").addEventListener("click",  ()=>zoomAt(1.3, 400, 580));
+$("#zout").addEventListener("click", ()=>zoomAt(1/1.3, 400, 580));
+$("#zrst").addEventListener("click", resetView);
+$("#back").addEventListener("click", ()=>{
+  $("#battle").classList.remove("on");
+  $("#home").classList.add("on");
+});
+window.addEventListener("keydown", e=>{
+  if(!$("#battle").classList.contains("on")) return;
+  if(e.key==="ArrowRight") setPhase(phase+1);
+  if(e.key==="ArrowLeft")  setPhase(phase-1);
+  if(e.key==="Escape") $("#back").click();
+});
+
+buildHome();
+</script>
+</body>
+</html>
